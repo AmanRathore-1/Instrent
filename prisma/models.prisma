@@ -1,0 +1,321 @@
+model User {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  clerkId            String                 @unique
+  username           String                 @unique
+  name               String
+  email              String
+  avatar             String                 @default("")
+  bio                String                 @default("")
+  city               String                 @default("")
+  locationArea       String                 @default("")
+  occupation         String?
+  instituteOrCompany String?
+  activeRole         String                 @default("TENANT")
+  isVerified         Boolean                @default(false)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  posts              Post[]
+  reels              Reel[]
+  comments           Comment[]
+  likes              Like[]
+  following          Follow[]               @relation("Following")
+  followers          Follow[]               @relation("Followers")
+  roommateProfile    RoommateProfile?
+  rooms              Room[]
+  savedRooms         SavedRoom[]
+  sentInquiries      RoomInquiry[]          @relation("InquiryRequester")
+  receivedInquiries  RoomInquiry[]          @relation("InquiryOwner")
+  conversationLinks  ConversationParticipant[]
+  sentMessages       Message[]              @relation("SentMessages")
+  receivedMessages   Message[]              @relation("ReceivedMessages")
+  notifications      Notification[]
+  reports            Report[]
+  mediaUploads       MediaUpload[]
+
+  @@index([createdAt, id])
+  @@schema("rentreel")
+}
+
+model Post {
+  id        String      @id @default(uuid()) @db.Uuid
+  authorId  String      @db.Uuid
+  caption   String      @db.VarChar(2200)
+  location  String      @default("") @db.VarChar(120)
+  rent      Int?
+  roomType  String?     @db.VarChar(40)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  author    User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  media     RoomMedia[]
+  likes     Like[]
+  comments  Comment[]
+  saves     SavedRoom[]
+
+  @@index([authorId, createdAt, id])
+  @@index([createdAt, id])
+  @@schema("rentreel")
+}
+
+model Reel {
+  id         String      @id @default(uuid()) @db.Uuid
+  authorId   String      @db.Uuid
+  caption    String      @db.VarChar(2200)
+  videoUrl   String
+  publicId   String
+  coverUrl   String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  author     User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  likes      Like[]
+  comments   Comment[]
+
+  @@index([authorId, createdAt, id])
+  @@index([createdAt, id])
+  @@unique([publicId])
+  @@schema("rentreel")
+}
+
+model Comment {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  postId    String?  @db.Uuid
+  reelId    String?  @db.Uuid
+  text      String   @db.VarChar(2200)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reel      Reel?    @relation(fields: [reelId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt, id])
+  @@index([reelId, createdAt, id])
+  @@schema("rentreel")
+}
+
+model Like {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  postId    String?  @db.Uuid
+  reelId    String?  @db.Uuid
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reel      Reel?    @relation(fields: [reelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, postId])
+  @@unique([userId, reelId])
+  @@index([postId, createdAt, id])
+  @@index([reelId, createdAt, id])
+  @@schema("rentreel")
+}
+
+model MediaUpload {
+  id           String   @id @default(uuid()) @db.Uuid
+  ownerId      String   @db.Uuid
+  publicId     String   @unique
+  resourceType String   @db.VarChar(10)
+  mimeType     String   @db.VarChar(80)
+  fileSize     Int
+  expiresAt    DateTime
+  attachedAt   DateTime?
+  createdAt    DateTime @default(now())
+  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, expiresAt])
+  @@schema("rentreel")
+}
+
+model Follow {
+  id         String   @id @default(uuid()) @db.Uuid
+  followerId String   @db.Uuid
+  followedId String   @db.Uuid
+  createdAt  DateTime @default(now())
+  follower   User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  followed   User     @relation("Followers", fields: [followedId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followedId])
+  @@index([followedId, createdAt, id])
+  @@schema("rentreel")
+}
+
+model Room {
+  id          String      @id @default(uuid()) @db.Uuid
+  ownerId     String      @db.Uuid
+  title       String      @db.VarChar(160)
+  description String      @db.VarChar(2200)
+  city        String      @db.VarChar(120)
+  area        String      @db.VarChar(160)
+  fullAddress String      @default("")
+  amenities   String[]    @default([])
+  rent        Int
+  roomType    String      @db.VarChar(40)
+  availableAt DateTime?
+  status      String      @default("AVAILABLE") @db.VarChar(20)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  owner       User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  media       RoomMedia[]
+  savedBy     SavedRoom[]
+  inquiries   RoomInquiry[]
+
+  @@index([ownerId, createdAt, id])
+  @@index([city, area, rent])
+  @@index([createdAt, id])
+  @@schema("rentreel")
+}
+
+model RoomMedia {
+  id        String   @id @default(uuid()) @db.Uuid
+  roomId    String?  @db.Uuid
+  postId    String?  @db.Uuid
+  url       String
+  publicId  String
+  resourceType String @default("image") @db.VarChar(10)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  room      Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([publicId])
+  @@index([roomId, position])
+  @@index([postId, position])
+  @@schema("rentreel")
+}
+
+model RoommateProfile {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @db.Uuid
+  budgetMin   Int?
+  budgetMax   Int?
+  moveInAt    DateTime?
+  preferences Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("rentreel")
+}
+
+model SavedRoom {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  roomId    String?  @db.Uuid
+  postId    String?  @db.Uuid
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room      Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+  @@unique([userId, postId])
+  @@index([userId, createdAt, id])
+  @@schema("rentreel")
+}
+
+model RoomInquiry {
+  id          String   @id @default(uuid()) @db.Uuid
+  roomId      String   @db.Uuid
+  requesterId String   @db.Uuid
+  ownerId     String   @db.Uuid
+  message     String   @db.VarChar(2200)
+  idempotencyKey String? @unique
+  status      String   @default("PENDING") @db.VarChar(30)
+  createdAt   DateTime @default(now())
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  requester   User     @relation("InquiryRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  owner       User     @relation("InquiryOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt, id])
+  @@index([requesterId, createdAt, id])
+  @@index([ownerId, status, createdAt])
+  @@schema("rentreel")
+}
+
+model Conversation {
+  id            String                    @id @default(uuid()) @db.Uuid
+  pairKey       String                    @unique
+  activeContext Json?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  participants  ConversationParticipant[]
+  messages      Message[]
+
+  @@index([updatedAt, id])
+  @@schema("rentreel")
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  userId         String       @db.Uuid
+  joinedAt       DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId, conversationId])
+  @@schema("rentreel")
+}
+
+model Message {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  senderId       String       @db.Uuid
+  receiverId     String       @db.Uuid
+  text           String       @db.VarChar(5000)
+  context        Json?
+  idempotencyKey String?      @unique
+  isRead         Boolean      @default(false)
+  deliveredAt    DateTime?
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver       User         @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt, id])
+  @@index([receiverId, isRead])
+  @@schema("rentreel")
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  type      String   @db.VarChar(40)
+  title     String   @db.VarChar(120)
+  message   String   @db.VarChar(500)
+  metadata  Json?
+  dedupeKey String?  @unique
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt, id])
+  @@index([userId, isRead])
+  @@schema("rentreel")
+}
+
+model Report {
+  id         String   @id @default(uuid()) @db.Uuid
+  reporterId String   @db.Uuid
+  targetType String   @db.VarChar(40)
+  targetId   String
+  reason     String   @db.VarChar(120)
+  details    String?  @db.VarChar(2200)
+  status     String   @default("PENDING") @db.VarChar(30)
+  createdAt  DateTime @default(now())
+  reporter   User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@index([reporterId, createdAt, id])
+  @@index([targetType, targetId])
+  @@index([status, createdAt])
+  @@schema("rentreel")
+}
+
+model WebhookEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  eventId   String   @unique
+  eventType String   @db.VarChar(100)
+  createdAt DateTime @default(now())
+
+  @@schema("rentreel")
+}
