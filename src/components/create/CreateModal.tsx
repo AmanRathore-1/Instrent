@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ImagePlus, MapPin, Trash2, Upload, Video, X } from 'lucide-react';
+import { Check, Film, ImagePlus, MapPin, Trash2, Upload, Video, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 
