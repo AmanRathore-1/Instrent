@@ -362,15 +362,15 @@ export const api = {
     fetchJson<{ reels: Reel[]; nextCursor: string | null }>(
       `/reels${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
-  createReel: (data: { caption: string; publicId: string }) =>
+  createReel: (data: { caption: string; publicId: string; location?: string }) =>
     fetchJson<{ success: boolean; reel: Reel }>('/reels', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  updateReel: (id: string, caption: string) =>
+  updateReel: (id: string, data: { caption: string; location?: string }) =>
     fetchJson<{ success: boolean; reel: Reel }>(`/reels/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ caption }),
+      body: JSON.stringify(data),
     }),
   deleteReel: (id: string) =>
     fetchJson<{ success: boolean }>(`/reels/${id}`, {
@@ -486,6 +486,7 @@ export const api = {
       user: User;
       isFollowing: boolean;
       posts: Post[];
+      reels: Reel[];
     }>(`/users/${username}`),
   getProfileConnections: (username: string, kind: 'followers' | 'following', cursor?: string) =>
     fetchJson<{ users: Array<User & { isFollowing: boolean }>; nextCursor: string | null }>(

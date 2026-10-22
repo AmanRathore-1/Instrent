@@ -1,312 +1,388 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Heart, MessageCircle, Pause, Play, Share2, Volume2, VolumeX, X } from 'lucide-react';
-import type { Comment, Reel } from '../../types/client.ts';
+
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Heart,
+  MapPin,
+  MessageCircle,
+  Pencil,
+  RefreshCw,
+  Save,
+  Trash2,
+  Video,
+  X,
+} from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import type { Reel } from '../../types/client.ts';
 
 export const ReelsView: React.FC = () => {
-  const { currentUser, openUserProfile, openCreateModal, showToast, realtimeSocket } = useApp();
+  const { currentUser, openUserProfile, showToast } = useApp();
+
   const [reels, setReels] = useState<Reel[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [activeReelId, setActiveReelId] = useState('');
-  const [isMuted, setIsMuted] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [commentsReelId, setCommentsReelId] = useState('');
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [commentText, setCommentText] = useState('');
-  const [commentBusy, setCommentBusy] = useState(false);
-  const scroller = useRef<HTMLDivElement>(null);
-  const loadMoreMarker = useRef<HTMLDivElement>(null);
-  const videoElements = useRef(new Map<string, HTMLVideoElement>());
-  const showToastRef = useRef(showToast);
-  const loadingMore = useRef(false);
+  const [editingReelId, setEditingReelId] = useState<string | null>(null);
+  const [editedCaption, setEditedCaption] = useState('');
+  const [editedLocation, setEditedLocation] = useState('');
+  const [savingReelId, setSavingReelId] = useState<string | null>(null);
+  const [deletingReelId, setDeletingReelId] = useState<string | null>(null);
 
-  useEffect(() => {
-    showToastRef.current = showToast;
-  }, [showToast]);
+  const loadReels = useCallback(async (initial = false) => {
+    if (initial) setLoading(true);
+    else setRefreshing(true);
 
-  const loadReels = useCallback(async (cursor?: string) => {
-    if (cursor && loadingMore.current) return;
-    if (cursor) loadingMore.current = true;
-    if (!cursor) {
-      setLoading(true);
-      setError('');
-    }
+    setError('');
+
     try {
-      const response = await api.getReels(cursor);
-      setReels((items) => cursor
-        ? [...items, ...response.reels.filter((reel) => !items.some((item) => item.id === reel.id))]
-        : response.reels);
-      setNextCursor(response.nextCursor);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Could not load reels.';
-      setError(message);
-      showToastRef.current(message, 'error');
+      const result = await api.getReels();
+      setReels(result.reels);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Unable to load reels.',
+      );
     } finally {
       setLoading(false);
-      if (cursor) loadingMore.current = false;
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadReels();
+    void loadReels(true);
+
+    const interval = window.setInterval(() => {
+      void loadReels();
+    }, 15000);
+
+    return () => window.clearInterval(interval);
   }, [loadReels]);
 
-  useEffect(() => {
-    const root = scroller.current;
-    if (!root || reels.length === 0) return;
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        const id = (entry.target as HTMLElement).dataset.reelId;
-        if (!id) return;
-        const itemVideo = videoElements.current.get(id);
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.65) {
-          setActiveReelId(id);
-          setIsPlaying(true);
-          if (itemVideo) void itemVideo.play().catch(() => setIsPlaying(false));
-        } else {
-          itemVideo?.pause();
-        }
+  const startEditing = (reel: Reel) => {
+    setEditingReelId(reel.id);
+    setEditedCaption(reel.caption);
+    setEditedLocation(reel.location);
+  };
+
+  const cancelEditing = () => {
+    setEditingReelId(null);
+    setEditedCaption('');
+    setEditedLocation('');
+  };
+
+  const saveCaption = async (reelId: string) => {
+    const caption = editedCaption.trim();
+    if (!caption) {
+      showToast('A reel caption cannot be empty.', 'warning');
+      return;
+    }
+
+    setSavingReelId(reelId);
+    try {
+      const result = await api.updateReel(reelId, {
+        caption,
+        location: editedLocation.trim(),
       });
-    }, { root, threshold: [0.65] });
-    root.querySelectorAll('[data-reel-id]').forEach((item) => observer.observe(item));
-    return () => observer.disconnect();
-  }, [reels]);
-
-  useEffect(() => {
-    if (!nextCursor || !loadMoreMarker.current) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) void loadReels(nextCursor);
-    }, { rootMargin: '500px 0px' });
-    observer.observe(loadMoreMarker.current);
-    return () => observer.disconnect();
-  }, [loadReels, nextCursor]);
-
-  useEffect(() => {
-    if (!realtimeSocket) return;
-    const reload = () => void loadReels();
-    realtimeSocket.on('reel:changed', reload);
-    return () => {
-      realtimeSocket.off('reel:changed', reload);
-    };
-  }, [loadReels, realtimeSocket]);
-
-  useEffect(() => {
-    const reelId = window.location.hash.startsWith('#reel=')
-      ? decodeURIComponent(window.location.hash.slice(6))
-      : '';
-    if (!reelId || !reels.some((reel) => reel.id === reelId)) return;
-    document.getElementById(`reel-${reelId}`)?.scrollIntoView({ block: 'start' });
-    setActiveReelId(reelId);
-  }, [reels]);
-
-  const toggleLike = async (reel: Reel) => {
-    try {
-      const result = await api.setReelLike(reel.id, !reel.isLiked);
-      setReels((items) => items.map((item) => item.id === reel.id
-        ? { ...item, isLiked: result.isLiked, likesCount: result.likesCount }
-        : item));
-    } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : 'Could not update this like.', 'error');
-    }
-  };
-
-  const openComments = async (reelId: string) => {
-    setCommentsReelId(reelId);
-    setComments([]);
-    try {
-      const result = await api.getReelComments(reelId);
-      setComments(result.comments);
-    } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : 'Could not load comments.', 'error');
-    }
-  };
-
-  const addComment = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!commentsReelId || !commentText.trim() || commentBusy) return;
-    setCommentBusy(true);
-    try {
-      const result = await api.addReelComment(commentsReelId, commentText.trim());
-      setComments((items) => [...items, result.comment]);
-      setReels((items) => items.map((reel) => reel.id === commentsReelId
-        ? { ...reel, commentsCount: reel.commentsCount + 1 }
-        : reel));
-      setCommentText('');
-    } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : 'Could not post your comment.', 'error');
+      setReels((items) => items.map((item) => item.id === reelId ? result.reel : item));
+      cancelEditing();
+      showToast('Reel caption updated.', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not update this reel.', 'error');
     } finally {
-      setCommentBusy(false);
-    }
-  };
-
-  const shareReel = async (reel: Reel) => {
-    const url = new URL(window.location.href);
-    url.hash = `reel=${encodeURIComponent(reel.id)}`;
-    try {
-      if (navigator.share) await navigator.share({ title: 'RentReel', text: reel.caption, url: url.toString() });
-      else {
-        await navigator.clipboard.writeText(url.toString());
-        showToast('Reel link copied.', 'success');
-      }
-    } catch (cause) {
-      if (cause instanceof Error && cause.name !== 'AbortError') {
-        showToast('Could not share this reel.', 'error');
-      }
+      setSavingReelId(null);
     }
   };
 
   const deleteReel = async (reel: Reel) => {
-    if (!window.confirm('Delete this reel?')) return;
+    if (!window.confirm('Delete this reel? This action cannot be undone.')) return;
+
+    setDeletingReelId(reel.id);
     try {
       await api.deleteReel(reel.id);
       setReels((items) => items.filter((item) => item.id !== reel.id));
+      if (editingReelId === reel.id) cancelEditing();
       showToast('Reel deleted.', 'success');
-    } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : 'Could not delete this reel.', 'error');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not delete this reel.', 'error');
+    } finally {
+      setDeletingReelId(null);
     }
   };
-
-  const togglePlayback = (reel: Reel) => {
-    const itemVideo = videoElements.current.get(reel.id);
-    if (!itemVideo) return;
-    if (itemVideo.paused) {
-      void itemVideo.play().then(() => setIsPlaying(true)).catch(() => {
-        showToast('Playback could not start. Tap the video to try again.', 'warning');
-      });
-    } else {
-      itemVideo.pause();
-      setIsPlaying(false);
-    }
-  };
-
-  if (loading && reels.length === 0) {
-    return <div className="mx-auto max-w-3xl animate-pulse p-8 text-center text-sm text-zinc-400">Loading reels...</div>;
-  }
-
-  if (error && reels.length === 0) {
-    return (
-      <section className="mx-auto max-w-xl p-8 text-center">
-        <p className="text-sm text-rose-300">{error}</p>
-        <button onClick={() => void loadReels()} className="mt-4 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-semibold">Try again</button>
-      </section>
-    );
-  }
 
   return (
-    <section className="mx-auto flex h-[calc(100dvh-4rem)] max-w-4xl flex-col">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
-        <div>
-          <h1 className="text-sm font-bold text-white">Room reels</h1>
-          <p className="text-[10px] text-zinc-500">Real room tours shared by RentReel members</p>
-        </div>
-        <button onClick={() => openCreateModal('reel')} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500">
-          <Camera className="h-4 w-4" /> Create reel
-        </button>
-      </header>
+    <main className="min-h-screen bg-black px-4 py-6 pb-24 text-white sm:px-8">
+      <div className="mx-auto max-w-7xl">
 
-      <div ref={scroller} className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto scroll-smooth">
-        {reels.map((reel) => (
-          <article
-            key={reel.id}
-            id={`reel-${reel.id}`}
-            data-reel-id={reel.id}
-            className="relative mx-auto h-[calc(100dvh-7rem)] min-h-[32rem] w-full max-w-lg snap-start overflow-hidden bg-black sm:my-3 sm:rounded-2xl"
-          >
-            <video
-              ref={(element) => {
-                if (element) videoElements.current.set(reel.id, element);
-                else videoElements.current.delete(reel.id);
-              }}
-              src={reel.videoUrl}
-              poster={reel.thumbnailUrl}
-              playsInline
-              muted={isMuted}
-              loop
-              preload="metadata"
-              onClick={() => togglePlayback(reel)}
-              className="h-full w-full object-cover"
-            />
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/70" />
-            <div className="absolute inset-x-0 top-0 flex items-center justify-between p-4">
-              <button
-                onClick={() => reel.owner && openUserProfile(reel.owner.username)}
-                className="flex items-center gap-2 text-left"
-              >
-                {reel.owner?.avatar
-                  ? <img src={reel.owner.avatar} alt="" className="h-9 w-9 rounded-full border border-white/60 object-cover" />
-                  : <span className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-sm font-bold">{reel.owner?.name.slice(0, 1) || '?'}</span>}
-                <span className="text-xs font-semibold text-white">{reel.owner?.name || 'Member'}</span>
-              </button>
-              {currentUser?.id === reel.ownerId && (
-                <button onClick={() => void deleteReel(reel)} aria-label="Delete your reel" className="rounded-full bg-black/40 p-2 text-white hover:bg-rose-600">
-                  <X className="h-4 w-4" />
-                </button>
-              )}
+        {/* Header */}
+        <header className="mb-7 flex items-center justify-between gap-4 border-b border-zinc-800 pb-5">
+          <div>
+            <div className="flex items-center gap-2">
+              <Video className="h-6 w-6 text-rose-400" />
+              <h1 className="text-2xl font-extrabold sm:text-3xl">
+                Room Reels
+              </h1>
             </div>
 
-            <div className="absolute inset-y-1/3 right-3 flex flex-col items-center gap-5">
-              <button onClick={() => void toggleLike(reel)} aria-label={reel.isLiked ? 'Unlike reel' : 'Like reel'} className="flex flex-col items-center gap-1 text-white">
-                <Heart className={`h-7 w-7 drop-shadow ${reel.isLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
-                <span className="text-[10px] font-semibold">{reel.likesCount}</span>
-              </button>
-              <button onClick={() => void openComments(reel.id)} aria-label="Open comments" className="flex flex-col items-center gap-1 text-white">
-                <MessageCircle className="h-7 w-7 drop-shadow" />
-                <span className="text-[10px] font-semibold">{reel.commentsCount}</span>
-              </button>
-              <button onClick={() => void shareReel(reel)} aria-label="Share reel" className="rounded-full p-1 text-white">
-                <Share2 className="h-6 w-6 drop-shadow" />
-              </button>
-              <button onClick={() => setIsMuted((muted) => !muted)} aria-label={isMuted ? 'Unmute reel' : 'Mute reel'} className="rounded-full p-1 text-white">
-                {isMuted ? <VolumeX className="h-6 w-6 drop-shadow" /> : <Volume2 className="h-6 w-6 drop-shadow" />}
-              </button>
-              <button onClick={() => togglePlayback(reel)} aria-label={isPlaying && activeReelId === reel.id ? 'Pause reel' : 'Play reel'} className="rounded-full p-1 text-white">
-                {isPlaying && activeReelId === reel.id ? <Pause className="h-6 w-6 drop-shadow" /> : <Play className="h-6 w-6 drop-shadow" />}
-              </button>
-            </div>
+            <p className="mt-2 text-sm text-zinc-400">
+              Discover room tours shared by the RentReel community.
+            </p>
+          </div>
 
-            <div className="absolute inset-x-0 bottom-0 p-4 pr-16">
-              <p className="whitespace-pre-wrap text-sm font-medium text-white drop-shadow">{reel.caption}</p>
-              <p className="mt-1 text-[10px] text-zinc-200">{new Date(reel.createdAt).toLocaleDateString()}</p>
-            </div>
-          </article>
-        ))}
-        {reels.length === 0 && !loading && (
-          <div className="grid min-h-full place-content-center px-6 text-center">
-            <Camera className="mx-auto h-10 w-10 text-zinc-600" />
-            <p className="mt-3 text-sm font-semibold text-white">No reels yet</p>
-            <p className="mt-1 text-xs text-zinc-400">Room tours members share will appear here.</p>
+        </header>
+
+        {/* Loading */}
+        {loading && (
+          <div className="flex min-h-72 items-center justify-center">
+            <RefreshCw className="h-7 w-7 animate-spin text-rose-400" />
+            <span className="ml-3 text-sm text-zinc-400">
+              Loading reels...
+            </span>
           </div>
         )}
-        {nextCursor && <div ref={loadMoreMarker} className="h-8 text-center text-xs text-zinc-500">{loading ? 'Loading more reels…' : ''}</div>}
+
+        {/* Error */}
+        {!loading && error && (
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-8 text-center">
+            <p className="text-sm text-rose-300">{error}</p>
+            <button
+              type="button"
+              onClick={() => void loadReels(true)}
+              className="mt-4 rounded-lg bg-zinc-800 px-5 py-2 text-sm hover:bg-zinc-700"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!loading && !error && reels.length === 0 && (
+          <div className="flex min-h-96 flex-col items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950 px-5 text-center">
+            <div className="mb-5 rounded-full bg-zinc-900 p-5">
+              <Camera className="h-10 w-10 text-zinc-500" />
+            </div>
+
+            <h2 className="text-xl font-bold">No reels yet</h2>
+
+            <p className="mt-2 max-w-md text-sm text-zinc-400">
+              Room tours uploaded by you and other members will appear here.
+            </p>
+
+          </div>
+        )}
+
+        {/* All users' reels */}
+        {!loading && !error && reels.length > 0 && (
+          <>
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-bold">
+                Explore reels
+              </h2>
+
+              <button
+                type="button"
+                onClick={() => void loadReels()}
+                disabled={refreshing}
+                aria-label="Refresh reels"
+                className="flex items-center gap-2 rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`}
+                />
+                Refresh
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {reels.map((reel) => {
+                const owner = reel.owner;
+
+                return (
+                  <article
+                    key={reel.id}
+                    className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 transition hover:border-zinc-600"
+                  >
+                    {/* Video player */}
+                    <div className="relative aspect-[9/14] overflow-hidden bg-zinc-900">
+                      {reel.videoUrl ? (
+                        <video
+                          src={reel.videoUrl}
+                          poster={reel.thumbnailUrl || undefined}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full flex-col items-center justify-center gap-3 text-zinc-500">
+                          <Video className="h-12 w-12" />
+                          <p className="text-xs">
+                            Video unavailable
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* User profile */}
+                    <div className="p-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (owner?.username) {
+                            openUserProfile(owner.username);
+                          }
+                        }}
+                        disabled={!owner?.username}
+                        className="flex w-full items-center gap-3 text-left"
+                      >
+                        {owner?.avatar ? (
+                          <img
+                            src={owner.avatar}
+                            alt={owner.name || 'User profile'}
+                            loading="lazy"
+                            className="h-11 w-11 shrink-0 rounded-full border border-zinc-700 object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-orange-500 text-lg font-bold">
+                            {owner?.name?.charAt(0)?.toUpperCase() || '?'}
+                          </div>
+                        )}
+
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-white">
+                            {owner?.name || 'RentReel member'}
+                          </p>
+
+                          <p className="truncate text-xs text-zinc-500">
+                            {owner?.username
+                              ? `@${owner.username}`
+                              : 'Community member'}
+                          </p>
+                        </div>
+                      </button>
+
+                      {/* Caption */}
+                      {editingReelId === reel.id ? (
+                        <div className="mt-4">
+                          <label htmlFor={`reel-caption-${reel.id}`} className="sr-only">
+                            Edit reel caption
+                          </label>
+                          <textarea
+                            id={`reel-caption-${reel.id}`}
+                            value={editedCaption}
+                            onChange={(event) => setEditedCaption(event.target.value)}
+                            maxLength={2200}
+                            rows={4}
+                            disabled={savingReelId === reel.id}
+                            className="w-full resize-y rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-rose-500 disabled:opacity-60"
+                          />
+                          <label
+                            htmlFor={`reel-location-${reel.id}`}
+                            className="mt-3 block text-xs font-medium text-zinc-400"
+                          >
+                            Location
+                          </label>
+                          <input
+                            id={`reel-location-${reel.id}`}
+                            value={editedLocation}
+                            onChange={(event) => setEditedLocation(event.target.value)}
+                            maxLength={120}
+                            disabled={savingReelId === reel.id}
+                            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-rose-500 disabled:opacity-60"
+                          />
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <span className="text-xs text-zinc-500">{editedCaption.length}/2200</span>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={cancelEditing}
+                                disabled={savingReelId === reel.id}
+                                className="flex items-center gap-1 rounded-lg bg-zinc-800 px-3 py-2 text-xs hover:bg-zinc-700 disabled:opacity-50"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void saveCaption(reel.id)}
+                                disabled={savingReelId === reel.id || !editedCaption.trim()}
+                                className="flex items-center gap-1 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold hover:bg-rose-500 disabled:opacity-50"
+                              >
+                                <Save className="h-3.5 w-3.5" />
+                                {savingReelId === reel.id ? 'Saving...' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : reel.caption ? (
+                        <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-6 text-zinc-300">
+                          {reel.caption}
+                        </p>
+                      ) : null}
+
+                      {/* Location and rent */}
+                      {(reel.location || reel.rentAmount != null) && (
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                          {reel.location && (
+                            <p className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-400">
+                              <MapPin className="h-4 w-4 shrink-0 text-rose-400" />
+                              <span className="truncate">
+                                {reel.location}
+                              </span>
+                            </p>
+                          )}
+
+                          {reel.rentAmount != null && (
+                            <p className="text-sm font-bold text-emerald-400">
+                              ₹{reel.rentAmount.toLocaleString('en-IN')}/mo
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Reel engagement */}
+                      <div className="mt-4 flex items-center gap-5 border-t border-zinc-800 pt-3 text-xs text-zinc-400">
+                        <span className="flex items-center gap-1.5">
+                          <Heart className="h-4 w-4 text-rose-400" />
+                          {reel.likesCount ?? 0}
+                        </span>
+
+                        <span className="flex items-center gap-1.5">
+                          <MessageCircle className="h-4 w-4" />
+                          {reel.commentsCount ?? 0}
+                        </span>
+                      </div>
+
+                      {currentUser?.id === reel.ownerId && (
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditing(reel)}
+                            disabled={Boolean(savingReelId || deletingReelId)}
+                            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-zinc-800 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Edit caption
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteReel(reel)}
+                            disabled={deletingReelId === reel.id || Boolean(savingReelId)}
+                            className="flex items-center justify-center gap-2 rounded-lg border border-red-900/60 px-3 py-2 text-xs text-red-300 hover:bg-red-950/50 disabled:opacity-50"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            {deletingReelId === reel.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
-
-      {commentsReelId && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 sm:items-center" onClick={() => setCommentsReelId('')}>
-          <section role="dialog" aria-modal="true" aria-label="Reel comments" className="flex max-h-[75vh] w-full max-w-lg flex-col rounded-t-2xl border border-zinc-800 bg-zinc-950 p-4 sm:rounded-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <h2 className="text-sm font-bold">Comments</h2>
-              <button onClick={() => setCommentsReelId('')} aria-label="Close comments"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="min-h-24 flex-1 space-y-3 overflow-y-auto py-3">
-              {comments.map((comment) => (
-                <div key={comment.id} className="flex items-start gap-2 text-xs">
-                  <span className="font-semibold text-white">{comment.userName}</span>
-                  <span className="min-w-0 break-words text-zinc-300">{comment.text}</span>
-                </div>
-              ))}
-              {comments.length === 0 && <p className="py-6 text-center text-xs text-zinc-500">Be the first to comment.</p>}
-            </div>
-            <form onSubmit={(event) => void addComment(event)} className="flex gap-2 border-t border-zinc-800 pt-3">
-              <input value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={2200} aria-label="Write a comment" placeholder="Add a comment…" className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-white outline-none focus:border-rose-500" />
-              <button type="submit" disabled={commentBusy || !commentText.trim()} className="rounded-lg bg-rose-600 px-3 text-xs font-semibold disabled:opacity-50">Post</button>
-            </form>
-          </section>
-        </div>
-      )}
-
-    </section>
+    </main>
   );
 };
+
+export default ReelsView;

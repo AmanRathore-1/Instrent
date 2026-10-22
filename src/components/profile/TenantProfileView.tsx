@@ -2,14 +2,17 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Briefcase,
   GraduationCap,
+  Grid3X3,
   MapPin,
+  Plus,
   Send,
   ShieldCheck,
   UserCheck,
   UserPlus,
+  Video,
   X,
 } from 'lucide-react';
-import type { Post, User } from '../../types/client.ts';
+import type { Post, Reel, User } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 
@@ -31,6 +34,8 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   } = useApp();
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [activeContentTab, setActiveContentTab] = useState<'posts' | 'reels'>('posts');
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -59,6 +64,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     if (!profileUsername) {
       setUser(null);
       setPosts([]);
+      setReels([]);
       setLoadError('Your profile is not available yet.');
       setLoading(false);
       return;
@@ -69,12 +75,14 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
       const data = await api.getUserProfile(profileUsername);
       setUser(data.user);
       setPosts(data.posts || []);
+      setReels(data.reels || []);
       setIsFollowing(data.isFollowing);
     } catch (cause) {
       console.error('Failed to load profile:', cause);
       setLoadError(cause instanceof Error ? cause.message : 'Could not load this profile.');
       setUser(null);
       setPosts([]);
+      setReels([]);
     } finally {
       setLoading(false);
     }
@@ -89,6 +97,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     const handlePostChanged = (change: { authorId?: string }) => {
       if (change.authorId === user.id) void loadProfile();
     };
+    const handleReelChanged = (change: { authorId?: string }) => {
+      if (change.authorId === user.id) void loadProfile();
+    };
     const handleFollowersChanged = (change: { followersCount?: number }) => {
       if (typeof change.followersCount === 'number') {
         setUser((previous) => previous
@@ -97,9 +108,11 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
       }
     };
     realtimeSocket.on('post:changed', handlePostChanged);
+    realtimeSocket.on('reel:changed', handleReelChanged);
     realtimeSocket.on('profile:followers-changed', handleFollowersChanged);
     return () => {
       realtimeSocket.off('post:changed', handlePostChanged);
+      realtimeSocket.off('reel:changed', handleReelChanged);
       realtimeSocket.off('profile:followers-changed', handleFollowersChanged);
     };
   }, [loadProfile, realtimeSocket, user]);
@@ -321,42 +334,119 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         </div>
       </header>
 
-      <div className="mb-5 flex justify-center border-b border-zinc-800/80">
-        <span className="flex min-h-12 items-center gap-2 border-t-2 border-zinc-100 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-100">
-          Room posts
-        </span>
+      <div role="tablist" aria-label="Profile content" className="mb-5 flex justify-center border-b border-zinc-800/80">
+        <button
+          id="profile-posts-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeContentTab === 'posts'}
+          aria-controls="profile-posts-panel"
+          onClick={() => setActiveContentTab('posts')}
+          className={`flex min-h-12 min-w-32 items-center justify-center gap-2 border-t-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+            activeContentTab === 'posts'
+              ? 'border-zinc-100 text-zinc-100'
+              : 'border-transparent text-zinc-500 hover:text-zinc-200'
+          }`}
+        >
+          <Grid3X3 className="h-4 w-4" />
+          Posts
+        </button>
+        <button
+          id="profile-reels-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeContentTab === 'reels'}
+          aria-controls="profile-reels-panel"
+          onClick={() => setActiveContentTab('reels')}
+          className={`flex min-h-12 min-w-32 items-center justify-center gap-2 border-t-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+            activeContentTab === 'reels'
+              ? 'border-zinc-100 text-zinc-100'
+              : 'border-transparent text-zinc-500 hover:text-zinc-200'
+          }`}
+        >
+          <Video className="h-4 w-4" />
+          Reels
+        </button>
       </div>
 
-      {posts.length > 0 ? (
-        <div className="grid grid-cols-3 gap-1 sm:gap-5">
-          {posts.map((post) => (
-            <div key={post.id} className="group relative aspect-square overflow-hidden bg-zinc-900">
-              <img
-                src={post.images[0]}
-                alt={post.caption}
-                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-              />
-              <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-                <span className="line-clamp-2 text-[10px] font-semibold text-white">{post.caption}</span>
-              </div>
+      {activeContentTab === 'posts' ? (
+        <section id="profile-posts-panel" role="tabpanel" aria-labelledby="profile-posts-tab">
+          {posts.length > 0 ? (
+            <div className="grid grid-cols-3 gap-1 sm:gap-5">
+              {posts.map((post) => (
+                <div key={post.id} className="group relative aspect-square overflow-hidden bg-zinc-900">
+                  <img
+                    src={post.images[0]}
+                    alt={post.caption}
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                  <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+                    <span className="line-clamp-2 text-[10px] font-semibold text-white">{post.caption}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="py-16 text-center">
-          <h2 className="text-sm font-semibold text-zinc-200">No room posts yet</h2>
-          <p className="mt-1 text-xs text-zinc-500">
-            {isOwnProfile ? 'Share room photos to start your profile.' : 'Room photos shared by this person will appear here.'}
-          </p>
-          {isOwnProfile && (
-            <button
-              onClick={() => openCreateModal('post')}
-              className="mt-4 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-500"
-            >
-              Create your first post
-            </button>
+          ) : (
+            <div className="py-16 text-center">
+              <h2 className="text-sm font-semibold text-zinc-200">No room posts yet</h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                {isOwnProfile ? 'Share room photos to start your profile.' : 'Room photos shared by this person will appear here.'}
+              </p>
+              {isOwnProfile && (
+                <button
+                  onClick={() => openCreateModal('post')}
+                  className="mt-4 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-500"
+                >
+                  Create your first post
+                </button>
+              )}
+            </div>
           )}
-        </div>
+        </section>
+      ) : (
+        <section id="profile-reels-panel" role="tabpanel" aria-labelledby="profile-reels-tab">
+          {isOwnProfile && (
+            <div className="mb-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => openCreateModal('reel')}
+                className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-rose-600 to-orange-500 px-4 py-2.5 text-xs font-bold text-white transition hover:brightness-110"
+              >
+                <Plus className="h-4 w-4" />
+                Upload room reel
+              </button>
+            </div>
+          )}
+          {reels.length > 0 ? (
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 sm:gap-5">
+              {reels.map((reel) => (
+                <div key={reel.id} className="relative aspect-square overflow-hidden bg-zinc-900">
+                  <video
+                    src={reel.videoUrl}
+                    poster={reel.thumbnailUrl || undefined}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    aria-label={reel.caption || 'Room reel'}
+                    className="h-full w-full object-cover"
+                  />
+                  {reel.caption && (
+                    <p className="pointer-events-none absolute inset-x-0 bottom-10 line-clamp-2 bg-gradient-to-t from-black/80 to-transparent px-2 pb-2 pt-5 text-[10px] font-medium text-white">
+                      {reel.caption}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-10 text-center">
+              <h2 className="text-sm font-semibold text-zinc-200">No reels yet</h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                Room tours shared by this person will appear here.
+              </p>
+            </div>
+          )}
+        </section>
       )}
 
       {connectionKind && (

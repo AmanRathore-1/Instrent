@@ -60,6 +60,7 @@ model Reel {
   id         String      @id @default(uuid()) @db.Uuid
   authorId   String      @db.Uuid
   caption    String      @db.VarChar(2200)
+  location   String      @default("") @db.VarChar(120)
   videoUrl   String
   publicId   String
   coverUrl   String?
