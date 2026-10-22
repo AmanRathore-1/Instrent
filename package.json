@@ -3,20 +3,23 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "server": "tsx watch server/index.ts",
-    "start:server": "tsx server/index.ts",
-    "start:server:prod": "node dist-server/index.js",
-    "test": "tsx --test server/modules/social/service.test.ts server/modules/rooms/rooms.test.ts",
-    "db:generate": "prisma generate",
-    "db:migrate:dev": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
-    "build:server": "tsc --noEmit false --outDir dist-server --rootDir server -p tsconfig.server.json",
-    "build": "prisma generate && tsc -b && tsc --noEmit -p tsconfig.server.json && npm run build:server && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
-  },
+  
+"scripts": {
+  "dev": "vite",
+  "server": "tsx watch server/index.ts",
+  "start": "node dist-server/index.js",
+  "start:server": "tsx server/index.ts",
+  "start:server:prod": "node dist-server/index.js",
+  "test": "tsx --test server/modules/social/service.test.ts server/modules/rooms/rooms.test.ts",
+  "db:generate": "prisma generate",
+  "db:migrate:dev": "prisma migrate dev",
+  "db:migrate:deploy": "prisma migrate deploy",
+  "build:server": "tsc --noEmit false --outDir dist-server --rootDir server -p tsconfig.server.json",
+  "build": "prisma generate && tsc -b && tsc --noEmit -p tsconfig.server.json && npm run build:server && vite build",
+  "lint": "oxlint",
+  "preview": "vite preview"
+}
+,
   "dependencies": {
     "@clerk/backend": "^3.25.0",
     "@clerk/clerk-react": "^5.61.10",
