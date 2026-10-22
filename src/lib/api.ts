@@ -217,14 +217,34 @@ export const api = {
       );
       const asset = response.data;
       if (
-        asset.public_id !== signed.upload.publicId ||
+        typeof asset.public_id !== 'string' ||
+        asset.public_id.length === 0 ||
+        typeof asset.secure_url !== 'string' ||
         asset.resource_type !== resourceType ||
-        !asset.secure_url.startsWith(`https://res.cloudinary.com/${signed.upload.cloudName}/${resourceType}/upload/`) ||
+        !Number.isInteger(asset.bytes) ||
+        asset.bytes <= 0 ||
         asset.bytes > signed.maxBytes
       ) {
         throw new Error('Cloudinary returned an invalid uploaded asset.');
       }
-      return { publicId: asset.public_id, url: asset.secure_url };
+      const assetUrl = new URL(asset.secure_url);
+      if (
+        assetUrl.protocol !== 'https:' ||
+        assetUrl.hostname !== 'res.cloudinary.com' ||
+        !assetUrl.pathname.startsWith(`/${signed.upload.cloudName}/${resourceType}/upload/`)
+      ) {
+        throw new Error('Cloudinary returned an invalid uploaded asset URL.');
+      }
+
+      const completed = await fetchJson<{ publicId: string }>('/media/complete', {
+        method: 'POST',
+        body: JSON.stringify({
+          reservedPublicId: signed.upload.publicId,
+          publicId: asset.public_id,
+          resourceType,
+        }),
+      });
+      return { publicId: completed.publicId, url: asset.secure_url };
     } catch (error) {
       if (axios.isAxiosError<{ error?: { message?: string } }>(error)) {
         throw new Error(error.response?.data?.error?.message || error.message);

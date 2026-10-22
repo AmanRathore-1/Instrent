@@ -306,7 +306,12 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         });
         if (assets.length) {
           const attached = await transaction.mediaUpload.updateMany({
-            where: { ownerId: viewer.id, publicId: { in: assets.map((asset) => asset.publicId) }, attachedAt: null },
+            where: {
+              ownerId: viewer.id,
+              publicId: { in: assets.map((asset) => asset.publicId) },
+              attachedAt: null,
+              expiresAt: { gt: new Date() },
+            },
             data: { attachedAt: new Date() },
           });
           if (attached.count !== assets.length) throw new Error('Media was already attached to another listing.');
@@ -396,7 +401,12 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         });
         if (newMedia?.length) {
           const attached = await transaction.mediaUpload.updateMany({
-            where: { ownerId: viewer.id, publicId: { in: newMedia.map((asset) => asset.publicId) }, attachedAt: null },
+            where: {
+              ownerId: viewer.id,
+              publicId: { in: newMedia.map((asset) => asset.publicId) },
+              attachedAt: null,
+              expiresAt: { gt: new Date() },
+            },
             data: { attachedAt: new Date() },
           });
           if (attached.count !== newMedia.length) throw new Error('Media was already attached to another listing.');

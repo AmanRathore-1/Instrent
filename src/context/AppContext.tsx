@@ -3,6 +3,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useRef,
 } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
@@ -32,9 +33,9 @@ interface AppContextType {
   setViewParams: (params: Record<string, any>) => void;
 
   isCreateModalOpen: boolean;
-  createModalTab: 'post';
+  createModalTab: 'post' | 'reel';
 
-  openCreateModal: (tab?: 'post') => void;
+  openCreateModal: (tab?: 'post' | 'reel') => void;
   closeCreateModal: () => void;
 
   unreadNotificationsCount: number;
@@ -87,6 +88,7 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+const realtimeDisconnectWarningDelayMs = 6_000;
 
 export const AppProvider = ({
   children,
@@ -110,7 +112,7 @@ export const AppProvider = ({
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
-  const [createModalTab, setCreateModalTab] = useState<'post'>('post');
+  const [createModalTab, setCreateModalTab] = useState<'post' | 'reel'>('post');
 
   const [unreadNotificationsCount, setUnreadNotificationsCount] =
     useState(0);
@@ -144,6 +146,7 @@ export const AppProvider = ({
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 4000);
   };
+  const showToastRef = useRef(showToast);
 
   const refreshUserData = async (): Promise<void> => {
     try {
@@ -218,6 +221,8 @@ export const AppProvider = ({
   useEffect(() => {
     let isCancelled = false;
     let socket: Socket | null = null;
+    let reconnectWarningTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectWarningShown = false;
     setRealtimeSocket(null);
 
     if (!currentUser) {
@@ -226,53 +231,66 @@ export const AppProvider = ({
       };
     }
 
-    void getClerkAccessToken()
-      .then((token) => {
-        if (!token) throw new Error('Your session expired. Sign in again to reconnect.');
-        if (isCancelled) return;
+    const scheduleReconnectWarning = () => {
+      if (reconnectWarningTimer || reconnectWarningShown || isCancelled) return;
+      reconnectWarningTimer = setTimeout(() => {
+        reconnectWarningTimer = null;
+        if (isCancelled || socket?.connected || reconnectWarningShown) return;
+        reconnectWarningShown = true;
+        showToastRef.current('Real-time updates are unavailable. Check your connection.', 'error');
+      }, realtimeDisconnectWarningDelayMs);
+    };
 
-        socket = io({ auth: { token } });
-        setRealtimeSocket(socket);
-        socket.io.on('reconnect_attempt', () => {
-          void getClerkAccessToken().then((freshToken) => {
-            if (!freshToken || !socket) throw new Error('Your session expired. Sign in again to reconnect.');
-            socket.auth = { token: freshToken };
-          }).catch((error: unknown) => {
-            console.error('Could not refresh authentication for realtime reconnect:', error);
-          });
-        });
-        socket.on('connect', () => {
-          void Promise.all([refreshNotifications(), refreshUnreadMessages()]).catch((error: unknown) => {
-            console.error('Could not resync realtime badge counts:', error);
-          });
-        });
-        socket.on('connect_error', (error) => {
-          console.error('Realtime connection failed:', error);
-        });
-        socket.on('message:notification', () => {
-          void refreshUnreadMessages().catch((error: unknown) => {
-            console.error('Could not sync unread message count:', error);
-          });
-        });
-        socket.on('notification:new', () => {
-          void refreshNotifications().catch((error: unknown) => {
-            console.error('Could not sync notification count:', error);
-          });
-        });
-      })
-      .catch((error: unknown) => {
-        if (!isCancelled) {
-          console.error('Could not initialize realtime connection:', error);
-        }
+    socket = io({
+      auth: (callback) => {
+        void getClerkAccessToken()
+          .then((token) => callback({ token: token ?? '' }))
+          .catch(() => callback({ token: '' }));
+      },
+    });
+    setRealtimeSocket(socket);
+
+    const handleConnect = () => {
+      if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
+      reconnectWarningTimer = null;
+      reconnectWarningShown = false;
+      void Promise.all([refreshNotifications(), refreshUnreadMessages()]).catch((error: unknown) => {
+        console.error('Could not resync realtime badge counts:', error);
       });
+    };
+    const handleDisconnect = () => scheduleReconnectWarning();
+    const handleConnectError = () => scheduleReconnectWarning();
+    const handleMessageNotification = () => {
+      void refreshUnreadMessages().catch((error: unknown) => {
+        console.error('Could not sync unread message count:', error);
+      });
+    };
+    const handleNotification = () => {
+      void refreshNotifications().catch((error: unknown) => {
+        console.error('Could not sync notifications:', error);
+      });
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
+    socket.on('message:notification', handleMessageNotification);
+    socket.on('notification:new', handleNotification);
+    scheduleReconnectWarning();
 
     return () => {
       isCancelled = true;
+      if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
+      socket?.off('connect', handleConnect);
+      socket?.off('disconnect', handleDisconnect);
+      socket?.off('connect_error', handleConnectError);
+      socket?.off('message:notification', handleMessageNotification);
+      socket?.off('notification:new', handleNotification);
       socket?.disconnect();
     };
   }, [currentUser?.id]);
 
-  const openCreateModal = (tab: 'post' = 'post') => {
+  const openCreateModal = (tab: 'post' | 'reel' = 'post') => {
     setCreateModalTab(tab);
     setIsCreateModalOpen(true);
   };

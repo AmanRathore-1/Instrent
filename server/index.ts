@@ -23,10 +23,7 @@ import {
   createSignedUpload,
   createVideoThumbnailUrl,
   deleteCloudinaryAssets,
-  deleteRoomPhotos,
-  uploadRoomPhoto,
   verifyUploadedAsset,
-  type UploadResourceType,
 } from './cloudinary.js';
 import { persistThenPublish } from './modules/social/service.js';
 import { createRoomRouter } from './modules/rooms/routes.js';
@@ -564,8 +561,22 @@ app.post('/api/reels', requireUser, async (req, res, next) => {
       res.status(400).json({ error: 'Upload an MP4, WebM, or MOV video.' });
       return;
     }
-    const reel = await persistThenPublish(
+    const reelId = await persistThenPublish(
       () => prisma.$transaction(async (transaction) => {
+        const attached = await transaction.mediaUpload.updateMany({
+          where: {
+            id: reservation.id,
+            ownerId: user.id,
+            publicId: asset.publicId,
+            resourceType: 'video',
+            attachedAt: null,
+            expiresAt: { gt: new Date() },
+          },
+          data: { attachedAt: new Date() },
+        });
+        if (attached.count !== 1) {
+          throw new Error('This video upload has expired or has already been attached to content.');
+        }
         const created = await transaction.reel.create({
           data: {
             authorId: user.id,
@@ -574,20 +585,23 @@ app.post('/api/reels', requireUser, async (req, res, next) => {
             publicId: asset.publicId,
             coverUrl: createVideoThumbnailUrl(asset.publicId),
           },
-          include: {
-            author: true,
-            _count: { select: { likes: true, comments: true } },
-            likes: { where: { userId: user.id }, select: { id: true } },
-          },
+          select: { id: true },
         });
-        await transaction.mediaUpload.update({
-          where: { publicId: asset.publicId },
-          data: { attachedAt: new Date() },
-        });
-        return created;
-      }),
-      (savedReel) => io.emit('reel:changed', { reelId: savedReel.id, authorId: user.id }),
+        return created.id;
+      }, { maxWait: 10_000, timeout: 20_000 }),
+      (id) => io.emit('reel:changed', { reelId: id, authorId: user.id }),
     );
+    const reel = await prisma.reel.findUnique({
+      where: { id: reelId },
+      include: {
+        author: true,
+        _count: { select: { likes: true, comments: true } },
+        likes: { where: { userId: user.id }, select: { id: true } },
+      },
+    });
+    if (!reel) {
+      throw new Error('Reel saved but could not be loaded for the response.');
+    }
     res.status(201).json({ success: true, reel: await serializeReel(reel, user.id) });
   } catch (error) {
     next(error);
@@ -929,40 +943,6 @@ const signedUploadSchema = z.object({
   mimeType: z.string().min(1).max(80),
   fileSize: z.number().int().positive(),
 });
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 10 },
-  fileFilter: (_req, file, callback) => {
-    if (!allowedImageTypes.has(file.mimetype)) {
-      callback(new Error('Only JPEG, PNG, WebP, and AVIF images are supported.'));
-      return;
-    }
-    callback(null, true);
-  },
-});
-
-app.post('/api/media/upload', requireUser, uploadLimiter, upload.array('images', 10), async (req, res, next) => {
-  const files = (req.files || []) as Express.Multer.File[];
-  if (files.length === 0) {
-    res.status(400).json({ error: 'Select at least one supported room photo.' });
-    return;
-  }
-  try {
-    const uploaded = await Promise.allSettled(files.map((file) => uploadRoomPhoto(file.buffer)));
-    const successful = uploaded.flatMap((result) =>
-      result.status === 'fulfilled' ? [result.value] : [],
-    );
-    const failure = uploaded.find((result) => result.status === 'rejected');
-    if (failure?.status === 'rejected') {
-      await deleteRoomPhotos(successful.map((photo) => photo.publicId));
-      throw failure.reason;
-    }
-    res.status(201).json({ assets: successful });
-  } catch (error) {
-    next(error);
-  }
-});
-
 app.post('/api/media/signature', requireUser, uploadLimiter, async (req, res, next) => {
   try {
     const user = await findSignedInUser(req, res);
@@ -985,6 +965,32 @@ app.post('/api/media/signature', requireUser, uploadLimiter, async (req, res, ne
       return;
     }
     const signed = createSignedUpload(user.id, body.data.resourceType, body.data.mimeType);
+    const expiredUploads = await prisma.mediaUpload.findMany({
+      where: {
+        ownerId: user.id,
+        attachedAt: null,
+        expiresAt: { lte: new Date() },
+      },
+      select: { id: true, publicId: true, resourceType: true },
+      take: 50,
+    });
+    if (expiredUploads.length > 0) {
+      const assets: Array<{ publicId: string; resourceType: 'image' | 'video' }> = [];
+      for (const asset of expiredUploads) {
+        if (asset.resourceType !== 'image' && asset.resourceType !== 'video') {
+          throw new Error('Expired media reservation has an unsupported resource type.');
+        }
+        assets.push({ publicId: asset.publicId, resourceType: asset.resourceType });
+      }
+      await deleteCloudinaryAssets(assets);
+      await prisma.mediaUpload.deleteMany({
+        where: {
+          id: { in: expiredUploads.map((asset) => asset.id) },
+          attachedAt: null,
+          expiresAt: { lte: new Date() },
+        },
+      });
+    }
     await prisma.mediaUpload.create({
       data: {
         ownerId: user.id,
@@ -996,6 +1002,69 @@ app.post('/api/media/signature', requireUser, uploadLimiter, async (req, res, ne
       },
     });
     res.json({ upload: signed, maxBytes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/media/complete', requireUser, uploadLimiter, async (req, res, next) => {
+  try {
+    const user = await findSignedInUser(req, res);
+    const body = z.object({
+      reservedPublicId: z.string().min(1).max(255),
+      publicId: z.string().min(1).max(255),
+      resourceType: z.enum(['image', 'video']),
+    }).strict().safeParse(req.body);
+    if (!user) {
+      res.status(404).json({ error: 'Profile not found.' });
+      return;
+    }
+    if (!body.success) {
+      res.status(400).json({ error: 'Invalid uploaded media details.' });
+      return;
+    }
+    const reservation = await prisma.mediaUpload.findFirst({
+      where: {
+        ownerId: user.id,
+        publicId: body.data.reservedPublicId,
+        resourceType: body.data.resourceType,
+        attachedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true, fileSize: true },
+    });
+    if (!reservation) {
+      res.status(403).json({ error: 'This upload reservation is expired, already used, or not yours.' });
+      return;
+    }
+    const maxBytes = body.data.resourceType === 'image' ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
+    if (reservation.fileSize > maxBytes) {
+      res.status(400).json({ error: 'Uploaded media exceeds the allowed size.' });
+      return;
+    }
+    const asset = await verifyUploadedAsset(
+      body.data.publicId,
+      body.data.resourceType,
+      user.id,
+      Math.min(maxBytes, reservation.fileSize),
+      body.data.reservedPublicId,
+    );
+    const result = await prisma.mediaUpload.updateMany({
+      where: {
+        id: reservation.id,
+        ownerId: user.id,
+        publicId: body.data.reservedPublicId,
+        resourceType: body.data.resourceType,
+        attachedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { publicId: asset.publicId },
+    });
+    if (result.count !== 1) {
+      res.status(409).json({ error: 'This upload could not be confirmed. Please upload it again.' });
+      return;
+    }
+    res.json({ publicId: asset.publicId });
   } catch (error) {
     next(error);
   }
@@ -1040,8 +1109,21 @@ app.post('/api/posts', requireUser, async (req, res, next) => {
     const assets = await Promise.all(parsedIds.data.map((publicId) =>
       verifyUploadedAsset(publicId, 'image', user.id, 10 * 1024 * 1024),
     ));
-    const result = await persistThenPublish(
+    const postId = await persistThenPublish(
       () => prisma.$transaction(async (transaction) => {
+        const attached = await transaction.mediaUpload.updateMany({
+          where: {
+            ownerId: user.id,
+            publicId: { in: parsedIds.data },
+            resourceType: 'image',
+            attachedAt: null,
+            expiresAt: { gt: new Date() },
+          },
+          data: { attachedAt: new Date() },
+        });
+        if (attached.count !== parsedIds.data.length) {
+          throw new Error('One or more uploaded photos have already been attached to content.');
+        }
         const post = await transaction.post.create({
           data: {
             authorId: user.id,
@@ -1057,23 +1139,26 @@ app.post('/api/posts', requireUser, async (req, res, next) => {
               })),
             },
           },
-          include: {
-            author: true,
-            media: { orderBy: { position: 'asc' } },
-            _count: { select: { likes: true, comments: true, saves: true } },
-            likes: { where: { userId: user.id }, select: { id: true } },
-            saves: { where: { userId: user.id }, select: { id: true } },
-          },
+          select: { id: true },
         });
-        await transaction.mediaUpload.updateMany({
-          where: { ownerId: user.id, publicId: { in: parsedIds.data }, attachedAt: null },
-          data: { attachedAt: new Date() },
-        });
-        return post;
-      }),
-      (post) => io.emit('post:changed', { postId: post.id, authorId: user.id }),
+        return post.id;
+      }, { maxWait: 10_000, timeout: 20_000 }),
+      (id) => io.emit('post:changed', { postId: id, authorId: user.id }),
     );
-    res.status(201).json({ success: true, post: await serializePost(result, user.id) });
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      include: {
+        author: true,
+        media: { orderBy: { position: 'asc' } },
+        _count: { select: { likes: true, comments: true, saves: true } },
+        likes: { where: { userId: user.id }, select: { id: true } },
+        saves: { where: { userId: user.id }, select: { id: true } },
+      },
+    });
+    if (!post) {
+      throw new Error('Post saved but could not be loaded for the response.');
+    }
+    res.status(201).json({ success: true, post: await serializePost(post, user.id) });
   } catch (error) {
     next(error);
   }
@@ -1951,9 +2036,11 @@ if (env.NODE_ENV === 'production') {
 }
 
 app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
+  const isTransactionError = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2028';
   logger.error({
     errorName: error instanceof Error ? error.name : 'UnknownError',
     prismaCode: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined,
+    ...(isTransactionError && error instanceof Error ? { prismaMessage: error.message.slice(0, 500) } : {}),
   }, 'API request failed');
   if (error instanceof multer.MulterError) {
     res.status(400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'Each image must be 10 MB or smaller.' : 'Invalid image upload.' });
@@ -1961,6 +2048,10 @@ app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) 
   }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
     res.status(409).json({ error: 'That resource already exists.' });
+    return;
+  }
+  if (isTransactionError) {
+    res.status(503).json({ error: 'The database took too long to publish this content. Your upload is still available; retry publishing.' });
     return;
   }
   if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2021', 'P2022'].includes(error.code)) {

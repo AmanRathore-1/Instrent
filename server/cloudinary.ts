@@ -4,11 +4,6 @@ import { env } from './config/env.js';
 
 export type UploadResourceType = 'image' | 'video';
 
-type CloudinaryPhoto = {
-  publicId: string;
-  url: string;
-};
-
 export type SignedCloudinaryUpload = {
   apiKey: string;
   cloudName: string;
@@ -21,9 +16,9 @@ export type SignedCloudinaryUpload = {
 };
 
 export class CloudinaryNotConfiguredError extends Error {
-  constructor() {
+  constructor(missingVariables: string[]) {
     super(
-      'Cloudinary is not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to the root .env file.',
+      `Cloudinary uploads are unavailable. Add ${missingVariables.join(', ')} to the root .env file using Cloudinary Console > Dashboard > API Keys.`,
     );
     this.name = 'CloudinaryNotConfiguredError';
   }
@@ -40,11 +35,16 @@ const getCloudinaryConfig = () => {
   const cloudName = env.CLOUDINARY_CLOUD_NAME;
   const apiKey = env.CLOUDINARY_API_KEY;
   const apiSecret = env.CLOUDINARY_API_SECRET;
+  const missingVariables = [
+    !cloudName ? 'CLOUDINARY_CLOUD_NAME' : null,
+    !apiKey ? 'CLOUDINARY_API_KEY' : null,
+    !apiSecret ? 'CLOUDINARY_API_SECRET' : null,
+  ].filter((variable): variable is string => variable !== null);
   if (!cloudName || !apiKey || !apiSecret) {
-    throw new CloudinaryNotConfiguredError();
+    throw new CloudinaryNotConfiguredError(missingVariables);
   }
   return { cloudName, apiKey, apiSecret };
-};
+}
 
 const configureCloudinary = () => {
   const config = getCloudinaryConfig();
@@ -54,43 +54,6 @@ const configureCloudinary = () => {
     api_secret: config.apiSecret,
   });
   return config;
-};
-
-export const uploadRoomPhoto = (buffer: Buffer): Promise<CloudinaryPhoto> => {
-  configureCloudinary();
-
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: 'rentreel/rooms',
-        resource_type: 'image',
-      },
-      (error, result) => {
-        if (error) {
-          reject(new CloudinaryUploadError(`Cloudinary upload failed: ${error.message}`));
-          return;
-        }
-        if (!result?.secure_url || !result.public_id) {
-          reject(new CloudinaryUploadError('Cloudinary upload returned no image URL.'));
-          return;
-        }
-        resolve({ publicId: result.public_id, url: result.secure_url });
-      },
-    );
-    stream.end(buffer);
-  });
-};
-
-export const deleteRoomPhotos = async (publicIds: string[]) => {
-  if (publicIds.length === 0) return;
-  configureCloudinary();
-  const results = await Promise.all(
-    publicIds.map((publicId) => cloudinary.uploader.destroy(publicId, { resource_type: 'image' })),
-  );
-  const failed = results.find((result) => result.result !== 'ok' && result.result !== 'not found');
-  if (failed) {
-    throw new CloudinaryUploadError(`Cloudinary cleanup failed: ${failed.result}`);
-  }
 };
 
 export const createSignedUpload = (
@@ -112,7 +75,7 @@ export const createSignedUpload = (
   }
   const folder = `rentreel/${resourceType === 'image' ? 'rooms' : 'reels'}/${ownerId}`;
   const timestamp = Math.floor(Date.now() / 1000);
-  const publicId = `${folder}/${randomUUID()}`;
+  const publicId = randomUUID();
   const signature = cloudinary.utils.api_sign_request({
     timestamp,
     folder,
@@ -127,28 +90,48 @@ export const verifyUploadedAsset = async (
   resourceType: UploadResourceType,
   ownerId: string,
   maxBytes: number,
+  expectedAssetName?: string,
 ) => {
   configureCloudinary();
-  const resource = await cloudinary.api.resource(publicId, { resource_type: resourceType }) as {
+  let resource: {
     public_id?: string;
+    asset_folder?: string;
     secure_url?: string;
     bytes?: number;
     format?: string;
     resource_type?: string;
   };
-  if (
-    resource.public_id !== publicId ||
-    resource.resource_type !== resourceType ||
-    !resource.secure_url ||
-    !publicId.startsWith(`rentreel/${resourceType === 'image' ? 'rooms' : 'reels'}/${ownerId}/`) ||
-    typeof resource.bytes !== 'number' ||
-    resource.bytes <= 0 ||
-    resource.bytes > maxBytes
-  ) {
-    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
-    throw new CloudinaryUploadError('The uploaded asset is invalid or exceeds the allowed size.');
+  try {
+    resource = await cloudinary.api.resource(publicId, { resource_type: resourceType });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'http_code' in error && error.http_code === 404) {
+      throw new CloudinaryUploadError('Cloudinary could not find the uploaded file. Please upload it again.');
+    }
+    throw error;
   }
-  return { publicId, url: resource.secure_url, bytes: resource.bytes, format: resource.format || '' };
+  const expectedFolder = `rentreel/${resourceType === 'image' ? 'rooms' : 'reels'}/${ownerId}`;
+  const belongsToOwner = resource.asset_folder === expectedFolder;
+  const verifiedPublicId = resource.public_id;
+  const secureUrl = resource.secure_url;
+  const bytes = resource.bytes;
+  const format = resource.format;
+  if (
+    !verifiedPublicId ||
+    verifiedPublicId !== publicId ||
+    resource.resource_type !== resourceType ||
+    !belongsToOwner ||
+    !secureUrl ||
+    typeof bytes !== 'number' ||
+    bytes <= 0 ||
+    bytes > maxBytes ||
+    (expectedAssetName !== undefined && verifiedPublicId.split('/').pop() !== expectedAssetName)
+  ) {
+    if (belongsToOwner) {
+      await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+    }
+    throw new CloudinaryUploadError('The uploaded file is invalid or exceeds the allowed size.');
+  }
+  return { publicId: verifiedPublicId, url: secureUrl, bytes, format: format || '' };
 };
 
 export const deleteCloudinaryAssets = async (
@@ -170,16 +153,4 @@ export const createVideoThumbnailUrl = (publicId: string) => {
     format: 'jpg',
     transformation: [{ width: 720, height: 1280, crop: 'fill', quality: 'auto' }],
   });
-};
-
-export const isCloudinaryRoomPhotoUrl = (value: string) => {
-  const { cloudName } = getCloudinaryConfig();
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' &&
-      url.hostname === 'res.cloudinary.com' &&
-      url.pathname.startsWith(`/${cloudName}/image/upload/`);
-  } catch {
-    return false;
-  }
 };

@@ -4,11 +4,8 @@ import type { Comment, Reel } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 
-const maxVideoBytes = 100 * 1024 * 1024;
-const acceptedVideoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
-
 export const ReelsView: React.FC = () => {
-  const { currentUser, openUserProfile, showToast, realtimeSocket } = useApp();
+  const { currentUser, openUserProfile, openCreateModal, showToast, realtimeSocket } = useApp();
   const [reels, setReels] = useState<Reel[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,11 +17,6 @@ export const ReelsView: React.FC = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [video, setVideo] = useState<File | null>(null);
-  const [caption, setCaption] = useState('');
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [publishing, setPublishing] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const loadMoreMarker = useRef<HTMLDivElement>(null);
   const videoElements = useRef(new Map<string, HTMLVideoElement>());
@@ -166,29 +158,6 @@ export const ReelsView: React.FC = () => {
     }
   };
 
-  const submitReel = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!video || !caption.trim()) {
-      showToast('Choose a video and add a caption.', 'warning');
-      return;
-    }
-    setPublishing(true);
-    setUploadProgress(0);
-    try {
-      const uploaded = await api.uploadMedia(video, 'video', setUploadProgress);
-      const result = await api.createReel({ publicId: uploaded.publicId, caption: caption.trim() });
-      setReels((items) => [result.reel, ...items]);
-      setCreateOpen(false);
-      setVideo(null);
-      setCaption('');
-      showToast('Your reel is live.', 'success');
-    } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : 'Could not publish the reel.', 'error');
-    } finally {
-      setPublishing(false);
-    }
-  };
-
   const deleteReel = async (reel: Reel) => {
     if (!window.confirm('Delete this reel?')) return;
     try {
@@ -233,7 +202,7 @@ export const ReelsView: React.FC = () => {
           <h1 className="text-sm font-bold text-white">Room reels</h1>
           <p className="text-[10px] text-zinc-500">Real room tours shared by RentReel members</p>
         </div>
-        <button onClick={() => setCreateOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500">
+        <button onClick={() => openCreateModal('reel')} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500">
           <Camera className="h-4 w-4" /> Create reel
         </button>
       </header>
@@ -338,41 +307,6 @@ export const ReelsView: React.FC = () => {
         </div>
       )}
 
-      {createOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => !publishing && setCreateOpen(false)}>
-          <form onSubmit={(event) => void submitReel(event)} className="w-full max-w-md space-y-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-5" onClick={(event) => event.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold">Create a room reel</h2>
-              <button type="button" onClick={() => setCreateOpen(false)} aria-label="Close" disabled={publishing}><X className="h-5 w-5" /></button>
-            </div>
-            <label className="block rounded-xl border border-dashed border-zinc-700 p-5 text-center text-xs text-zinc-300">
-              {video ? video.name : 'Choose an MP4, WebM, or MOV video (up to 100 MB)'}
-              <input
-                type="file"
-                accept="video/mp4,video/webm,video/quicktime"
-                className="sr-only"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] || null;
-                  if (file && (!acceptedVideoTypes.includes(file.type) || file.size > maxVideoBytes)) {
-                    showToast('Choose an MP4, WebM, or MOV video up to 100 MB.', 'warning');
-                    event.target.value = '';
-                    return;
-                  }
-                  setVideo(file);
-                }}
-              />
-            </label>
-            <label className="block text-xs font-semibold text-zinc-300">
-              Caption
-              <textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2200} rows={3} required className="mt-1.5 w-full rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs text-white outline-none focus:border-rose-500" />
-            </label>
-            {publishing && <p role="status" className="text-center text-xs text-zinc-400">Uploading: {uploadProgress}%</p>}
-            <button type="submit" disabled={publishing || !video || !caption.trim()} className="w-full rounded-lg bg-rose-600 py-2.5 text-xs font-bold disabled:opacity-50">
-              {publishing ? 'Publishing…' : 'Publish reel'}
-            </button>
-          </form>
-        </div>
-      )}
     </section>
   );
 };
