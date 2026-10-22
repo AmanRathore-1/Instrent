@@ -225,7 +225,7 @@ export const ReelsView: React.FC = () => {
               playsInline
               muted={isMuted}
               loop
-              preload="metadata"
+              preload={activeReelId === reel.id ? 'auto' : 'none'}
               onClick={() => togglePlayback(reel)}
               className="h-full w-full object-cover"
             />
@@ -236,7 +236,7 @@ export const ReelsView: React.FC = () => {
                 className="flex items-center gap-2 text-left"
               >
                 {reel.owner?.avatar
-                  ? <img src={reel.owner.avatar} alt="" className="h-9 w-9 rounded-full border border-white/60 object-cover" />
+                  ? <img src={reel.owner.avatar} alt="" loading="lazy" decoding="async" className="h-9 w-9 rounded-full border border-white/60 object-cover" />
                   : <span className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-800 text-sm font-bold">{reel.owner?.name.slice(0, 1) || '?'}</span>}
                 <span className="text-xs font-semibold text-white">{reel.owner?.name || 'Member'}</span>
               </button>

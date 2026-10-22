@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import {
   Send,
   CheckCheck,
@@ -10,11 +10,28 @@ import { Conversation, Message, MessageContext, User } from '../../types/client.
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 
-export const MessagesView: React.FC<{ initialConversationId?: string; initialContext?: MessageContext }> = ({
+const mergeMessage = (messages: Message[], incoming: Message): Message[] => {
+  const withoutPending = incoming.idempotencyKey
+    ? messages.filter((message) => message.idempotencyKey !== incoming.idempotencyKey)
+    : messages;
+  const existingIndex = withoutPending.findIndex((message) => message.id === incoming.id);
+  if (existingIndex >= 0) {
+    return withoutPending.map((message, index) => index === existingIndex ? incoming : message);
+  }
+  return [...withoutPending, incoming].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+  );
+};
+
+export const MessagesView: React.FC<{
+  initialConversationId?: string;
+  initialContext?: MessageContext;
+}> = ({
   initialConversationId,
   initialContext,
 }) => {
   const { currentUser, showToast, openPropertyProfile, openScheduleVisit, realtimeSocket, refreshUnreadMessages, setActiveView, setViewParams } = useApp();
+  const currentUserId = currentUser?.id;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(initialConversationId || null);
@@ -28,23 +45,46 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
   const [loading, setLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
-  const [isOtherOnline, setIsOtherOnline] = useState(false);
+  const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const previousScrollHeight = useRef<number | null>(null);
   const skipAutoScroll = useRef(false);
-  const pendingMessage = useRef<{ text: string; idempotencyKey: string } | null>(null);
+  const pendingMessage = useRef<{
+    text: string;
+    conversationId: string;
+    receiverId: string;
+    idempotencyKey: string;
+  } | null>(null);
   const typingTimer = useRef<number | null>(null);
+  const typingHeartbeatTimer = useRef<number | null>(null);
+  const activeConversationRef = useRef(activeConvId);
+  const typingActive = useRef(false);
+  const shouldScrollToBottom = useRef(true);
+  const isOtherOnline = Boolean(activeOtherUser && onlineUserIds.includes(activeOtherUser.id));
 
-  const loadConversations = async () => {
+  const stopTyping = useCallback((conversationId = activeConversationRef.current) => {
+    if (typingTimer.current !== null) {
+      window.clearTimeout(typingTimer.current);
+      typingTimer.current = null;
+    }
+    if (typingHeartbeatTimer.current !== null) {
+      window.clearTimeout(typingHeartbeatTimer.current);
+      typingHeartbeatTimer.current = null;
+    }
+    if (typingActive.current && conversationId) {
+      realtimeSocket?.emit('conversation:typing', { conversationId, isTyping: false });
+    }
+    typingActive.current = false;
+  }, [realtimeSocket]);
+
+  const loadConversations = useCallback(async () => {
     try {
       const data = await api.getConversations();
       setConversations(data.conversations);
-      if (!activeConvId && data.conversations.length > 0) {
-        setActiveConvId(data.conversations[0].id);
-        setActiveOtherUser(data.conversations[0].otherUser || null);
-        setActiveContext(data.conversations[0].activeContext);
+      if (data.conversations.length > 0) {
+        setActiveConvId((currentId) => currentId || data.conversations[0].id);
       }
     } catch (error) {
       console.error('Failed to load conversations:', error);
@@ -52,26 +92,24 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadConversations();
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (initialConversationId) {
       setActiveConvId(initialConversationId);
-      if (initialContext) {
-        setActiveContext(initialContext);
-      }
-      loadConversations();
+      setActiveContext(initialContext);
     }
-  }, [initialConversationId, initialContext]);
+    void loadConversations();
+  }, [initialConversationId, initialContext, loadConversations]);
 
-  const loadActiveMessages = async (convId: string) => {
+  const loadActiveMessages = useCallback(async (convId: string): Promise<void> => {
     try {
       const data = await api.getMessages(convId);
-      setMessages(data.messages);
+      if (activeConversationRef.current !== convId) return;
+      setMessages((previous) => data.messages.reduce(mergeMessage, previous));
+      setConversations((previous) => previous.map((conversation) =>
+        conversation.id === convId ? { ...conversation, unreadCount: 0 } : conversation,
+      ));
       setMessageCursor(data.nextCursor);
       setHasMoreMessages(data.hasMore);
       setActiveOtherUser(data.otherUser);
@@ -80,18 +118,22 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
       }
       await refreshUnreadMessages();
     } catch (error) {
-      console.error('Failed to load messages:', error);
-      showToast(error instanceof Error ? error.message : 'Could not load messages.', 'error');
+      if (activeConversationRef.current === convId) {
+        console.error('Failed to load messages:', error);
+        showToast(error instanceof Error ? error.message : 'Could not load messages.', 'error');
+      }
     }
-  };
+  }, [refreshUnreadMessages, showToast]);
 
   const loadOlderMessages = async () => {
     if (!activeConvId || !messageCursor || loadingOlderMessages) return;
+    const conversationId = activeConvId;
     previousScrollHeight.current = messagesContainerRef.current?.scrollHeight ?? null;
     skipAutoScroll.current = true;
     setLoadingOlderMessages(true);
     try {
-      const data = await api.getMessages(activeConvId, messageCursor);
+      const data = await api.getMessages(conversationId, messageCursor);
+      if (activeConversationRef.current !== conversationId) return;
       setMessages((previous) => {
         const existingIds = new Set(previous.map((message) => message.id));
         return [...data.messages.filter((message) => !existingIds.has(message.id)), ...previous];
@@ -99,6 +141,7 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
       setMessageCursor(data.nextCursor);
       setHasMoreMessages(data.hasMore);
     } catch (error) {
+      if (activeConversationRef.current !== conversationId) return;
       skipAutoScroll.current = false;
       previousScrollHeight.current = null;
       showToast(error instanceof Error ? error.message : 'Could not load older messages.', 'error');
@@ -108,31 +151,43 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
   };
 
   useEffect(() => {
+    activeConversationRef.current = activeConvId;
+    skipAutoScroll.current = false;
+    previousScrollHeight.current = null;
+    shouldScrollToBottom.current = true;
     if (activeConvId) {
       setMessages([]);
       setMessageCursor(null);
       setHasMoreMessages(false);
       void loadActiveMessages(activeConvId);
     }
+  }, [activeConvId, loadActiveMessages]);
+
+  useLayoutEffect(() => {
+    activeConversationRef.current = activeConvId;
   }, [activeConvId]);
 
   useEffect(() => {
-    if (!activeConvId || !currentUser || !realtimeSocket) return;
+    if (!activeConvId || !currentUserId || !realtimeSocket) return;
+    let hasJoinedConversation = false;
     const joinConversation = () => {
       realtimeSocket.emit('conversation:join', { conversationId: activeConvId }, (result: { success: boolean }) => {
         if (!result.success) showToast('You are not a member of this conversation.', 'error');
       });
-      void loadActiveMessages(activeConvId);
+      if (hasJoinedConversation) {
+        void loadActiveMessages(activeConvId);
+      }
+      hasJoinedConversation = true;
     };
     const handleNewMessage = (message: Message) => {
       if (message.conversationId !== activeConvId) return;
-      if (message.receiverId === currentUser.id) {
-        realtimeSocket.emit('message:delivered', { messageId: message.id });
+      if (message.receiverId === currentUserId) {
+        realtimeSocket.emit('message:read', { messageId: message.id });
       }
-      setMessages((previous) =>
-        previous.some((item) => item.id === message.id) ? previous : [...previous, message],
-      );
-      void refreshUnreadMessages();
+      setMessages((previous) => mergeMessage(previous, message));
+      void refreshUnreadMessages().catch((error: unknown) => {
+        console.error('Could not refresh unread messages:', error);
+      });
     };
     const handleMessageDelivered = (receipt: { messageId: string; deliveredAt: string }) => {
       setMessages((previous) => previous.map((message) => message.id === receipt.messageId
@@ -144,23 +199,40 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
       setMessages((previous) => previous.map((message) => ids.has(message.id) ? { ...message, isRead: true } : message));
     };
     const handleTyping = (event: { conversationId: string; userId: string; isTyping: boolean }) => {
-      if (event.conversationId === activeConvId && event.userId === activeOtherUser?.id) {
+      if (event.conversationId === activeConvId && event.userId !== currentUserId) {
         setIsOtherTyping(event.isTyping);
       }
     };
     const handlePresenceSnapshot = (presence: { userIds: string[] }) => {
-      setIsOtherOnline(presence.userIds.includes(activeOtherUser?.id || ''));
+      setOnlineUserIds(presence.userIds);
     };
     const handlePresence = (presence: { userId: string }) => {
-      if (presence.userId === activeOtherUser?.id) setIsOtherOnline(true);
+      setOnlineUserIds((userIds) => userIds.includes(presence.userId)
+        ? userIds
+        : [...userIds, presence.userId]);
     };
     const handleOffline = (presence: { userId: string }) => {
-      if (presence.userId === activeOtherUser?.id) setIsOtherOnline(false);
+      setOnlineUserIds((userIds) => userIds.filter((userId) => userId !== presence.userId));
     };
     const handleConversationChanged = () => {
       void loadConversations();
     };
+    const handleConversationRead = (event: { conversationId: string }) => {
+      setConversations((previous) => previous.map((conversation) =>
+        conversation.id === event.conversationId ? { ...conversation, unreadCount: 0 } : conversation,
+      ));
+    };
+    const handleSocketDisconnect = () => {
+      if (typingTimer.current !== null) window.clearTimeout(typingTimer.current);
+      typingTimer.current = null;
+      if (typingHeartbeatTimer.current !== null) window.clearTimeout(typingHeartbeatTimer.current);
+      typingHeartbeatTimer.current = null;
+      typingActive.current = false;
+      setIsOtherTyping(false);
+      setOnlineUserIds([]);
+    };
     realtimeSocket.on('connect', joinConversation);
+    realtimeSocket.on('disconnect', handleSocketDisconnect);
     realtimeSocket.on('message:new', handleNewMessage);
     realtimeSocket.on('message:delivered', handleMessageDelivered);
     realtimeSocket.on('message:read', handleMessagesRead);
@@ -169,9 +241,11 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
     realtimeSocket.on('presence:online', handlePresence);
     realtimeSocket.on('presence:offline', handleOffline);
     realtimeSocket.on('conversation:changed', handleConversationChanged);
+    realtimeSocket.on('conversation:read', handleConversationRead);
     if (realtimeSocket.connected) joinConversation();
     return () => {
       realtimeSocket.off('connect', joinConversation);
+      realtimeSocket.off('disconnect', handleSocketDisconnect);
       realtimeSocket.off('message:new', handleNewMessage);
       realtimeSocket.off('message:delivered', handleMessageDelivered);
       realtimeSocket.off('message:read', handleMessagesRead);
@@ -180,10 +254,20 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
       realtimeSocket.off('presence:online', handlePresence);
       realtimeSocket.off('presence:offline', handleOffline);
       realtimeSocket.off('conversation:changed', handleConversationChanged);
+      realtimeSocket.off('conversation:read', handleConversationRead);
+      stopTyping(activeConvId);
       realtimeSocket.emit('conversation:leave', { conversationId: activeConvId });
-      if (typingTimer.current !== null) window.clearTimeout(typingTimer.current);
     };
-  }, [activeConvId, activeOtherUser?.id, currentUser?.id, realtimeSocket]);
+  }, [
+    activeConvId,
+    currentUserId,
+    loadActiveMessages,
+    loadConversations,
+    realtimeSocket,
+    refreshUnreadMessages,
+    stopTyping,
+    showToast,
+  ]);
 
   useLayoutEffect(() => {
     if (skipAutoScroll.current) {
@@ -195,37 +279,58 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
       previousScrollHeight.current = null;
       return;
     }
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldScrollToBottom.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const handleSendMessage = async () => {
     const textToSend = inputText;
-    if (!textToSend.trim() || !activeConvId || !activeOtherUser || !currentUser) return;
+    if (isSending || !textToSend.trim() || !activeConvId || !activeOtherUser || !currentUser) return;
 
-    if (pendingMessage.current?.text !== textToSend.trim()) {
+    if (
+      pendingMessage.current?.text !== textToSend.trim() ||
+      pendingMessage.current.conversationId !== activeConvId ||
+      pendingMessage.current.receiverId !== activeOtherUser.id
+    ) {
       pendingMessage.current = {
         text: textToSend.trim(),
+        conversationId: activeConvId,
+        receiverId: activeOtherUser.id,
         idempotencyKey: crypto.randomUUID(),
       };
     }
+    const pending = pendingMessage.current;
+    const optimisticMessage: Message = {
+      id: `pending:${pending.idempotencyKey}`,
+      conversationId: activeConvId,
+      senderId: currentUser.id,
+      receiverId: activeOtherUser.id,
+      text: textToSend.trim(),
+      idempotencyKey: pending.idempotencyKey,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((previous) => mergeMessage(previous, optimisticMessage));
     setIsSending(true);
-    realtimeSocket?.emit('conversation:typing', { conversationId: activeConvId, isTyping: false });
+    stopTyping(activeConvId);
     try {
       const result = await api.sendMessage({
         conversationId: activeConvId,
         receiverId: activeOtherUser.id,
         text: textToSend.trim(),
-        idempotencyKey: pendingMessage.current.idempotencyKey,
+        idempotencyKey: pending.idempotencyKey,
         context: activeContext,
       });
-      setMessages((previous) =>
-        previous.some((item) => item.id === result.message.id)
-          ? previous
-          : [...previous, result.message],
-      );
-      setInputText('');
-      pendingMessage.current = null;
+      if (activeConversationRef.current === activeConvId) {
+        setMessages((previous) => mergeMessage(previous, result.message));
+        setInputText((currentText) => currentText === textToSend ? '' : currentText);
+      }
+      if (pendingMessage.current?.idempotencyKey === pending.idempotencyKey) {
+        pendingMessage.current = null;
+      }
     } catch (error) {
+      setMessages((previous) => previous.filter((message) => message.id !== optimisticMessage.id));
       showToast(error instanceof Error ? error.message : 'Could not send message.', 'error');
     } finally {
       setIsSending(false);
@@ -234,13 +339,25 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
 
   const handleInputChange = (text: string) => {
     setInputText(text);
-    if (!activeConvId || !realtimeSocket) return;
-    realtimeSocket.emit('conversation:typing', { conversationId: activeConvId, isTyping: true });
+    if (!activeConvId || !realtimeSocket?.connected) return;
+    if (!text.trim()) {
+      stopTyping(activeConvId);
+      return;
+    }
+    if (!typingActive.current) {
+      typingActive.current = true;
+      realtimeSocket.emit('conversation:typing', { conversationId: activeConvId, isTyping: true });
+      const sendTypingHeartbeat = () => {
+        if (!typingActive.current || !realtimeSocket.connected) return;
+        realtimeSocket.emit('conversation:typing', { conversationId: activeConvId, isTyping: true });
+        typingHeartbeatTimer.current = window.setTimeout(sendTypingHeartbeat, 2000);
+      };
+      typingHeartbeatTimer.current = window.setTimeout(sendTypingHeartbeat, 2000);
+    }
     if (typingTimer.current !== null) window.clearTimeout(typingTimer.current);
     typingTimer.current = window.setTimeout(() => {
-      realtimeSocket.emit('conversation:typing', { conversationId: activeConvId, isTyping: false });
-      typingTimer.current = null;
-    }, 1200);
+      stopTyping(activeConvId);
+    }, 1000);
   };
 
   return (
@@ -277,6 +394,8 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
                   setActiveConvId(c.id);
                   setActiveOtherUser(other || null);
                   setActiveContext(c.activeContext);
+                  setIsOtherTyping(false);
+                  setOnlineUserIds([]);
                 }}
                 className={`w-full p-4 flex items-center gap-3.5 text-left transition-colors ${
                   isSelected ? 'bg-zinc-800/90' : 'hover:bg-zinc-850'
@@ -330,7 +449,10 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
             <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60 backdrop-blur-md">
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => setActiveConvId(null)}
+                  onClick={() => {
+                    setIsOtherTyping(false);
+                    setActiveConvId(null);
+                  }}
                   className="md:hidden p-1.5 rounded-xl text-zinc-400 hover:text-white"
                 >
                   <ChevronLeft className="w-5 h-5" />
@@ -351,7 +473,7 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
                     {activeOtherUser.name}
                   </h3>
                   <p className="text-[11px] text-zinc-400 font-medium">
-                    {isOtherTyping ? 'Typing…' : isOtherOnline ? 'Online' : activeOtherUser.activeRole}
+                    {isOtherTyping ? `${activeOtherUser.name} is typing…` : isOtherOnline ? 'Online' : activeOtherUser.activeRole}
                   </p>
                 </div>
               </div>
@@ -413,7 +535,15 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
             )}
 
             {/* Messages Scroll Area */}
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div
+              ref={messagesContainerRef}
+              onScroll={(event) => {
+                const container = event.currentTarget;
+                shouldScrollToBottom.current =
+                  container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+              }}
+              className="flex-1 overflow-y-auto p-4 space-y-4"
+            >
               {hasMoreMessages && (
                 <div className="flex justify-center">
                   <button
@@ -449,7 +579,9 @@ export const MessagesView: React.FC<{ initialConversationId?: string; initialCon
                           minute: '2-digit',
                         })}
                       </span>
-                      {isMine && <CheckCheck className={`w-3 h-3 ${m.isRead ? 'text-sky-400' : m.deliveredAt ? 'text-zinc-300' : 'text-zinc-500'}`} />}
+                      {isMine && (m.id.startsWith('pending:')
+                        ? <span className="text-[9px] text-zinc-400">Sending…</span>
+                        : <CheckCheck className={`w-3 h-3 ${m.isRead ? 'text-sky-400' : m.deliveredAt ? 'text-zinc-300' : 'text-zinc-500'}`} />)}
                     </div>
                   </div>
                 );

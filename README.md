@@ -80,7 +80,32 @@ http://localhost:5173/
 npm run build
 ```
 
-The build generates the Prisma client and type-checks both the client and server.
+The build generates the Prisma client, type-checks the client and server, emits the runnable API server to `dist-server/`, and builds the browser app to `dist/`.
+
+## Production deployment
+
+Deploy the API, Socket.IO server, and built frontend together as one Node.js service. The Express server serves the `dist/` client in production, so the service must include both `dist/` and `dist-server/`. Configure the deployment platform to run the built JavaScript with Node rather than the development `tsx` scripts.
+
+Set these server environment variables in the deployment platform (never commit credentials):
+
+- `NODE_ENV=production`
+- `PORT` to the service's assigned listening port
+- `CLIENT_URL` to the exact public browser origin, including scheme
+- `DATABASE_URL` and `DIRECT_URL` using the production PostgreSQL connection details documented above
+- `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY` for the same Clerk application
+- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` together if uploads are enabled
+- `CLERK_WEBHOOK_SIGNING_SECRET` only if Clerk webhooks are configured
+
+Run these commands in the build/release stage:
+
+```bash
+npm ci
+npm run build
+npm run db:migrate:deploy
+npm run start:server:prod
+```
+
+Keep the generated Prisma client and its runtime dependencies available to the Node process. The deployment platform should route public HTTP and WebSocket traffic to the same service and port. Use `GET /api/health` as a database-aware health check; it returns `503` if the database is unavailable. The Express production fallback serves `index.html` for client-side routes, so refreshing a frontend route works when traffic reaches this service.
 
 ## Preview production build
 

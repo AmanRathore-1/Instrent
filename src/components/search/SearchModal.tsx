@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { MapPin, Search, Users, X } from 'lucide-react';
 import type { Post } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
@@ -18,52 +18,48 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
   const [postVersion, setPostVersion] = useState(0);
 
   useEffect(() => {
-    if (!realtimeSocket) return;
+    if (!isOpen || !realtimeSocket) return;
     const handlePostChanged = () => setPostVersion((version) => version + 1);
     realtimeSocket.on('post:changed', handlePostChanged);
     return () => {
       realtimeSocket.off('post:changed', handlePostChanged);
     };
-  }, [realtimeSocket]);
+  }, [isOpen, realtimeSocket]);
 
   useEffect(() => {
-    if (!isOpen || !query.trim()) {
-      setPosts([]);
-      setError('');
-      setLoading(false);
-      return;
-    }
+    if (!isOpen) return;
     let cancelled = false;
-    const timer = setTimeout(() => {
-      setLoading(true);
-      void api.getPosts()
-        .then((result) => {
-          if (!cancelled) {
-            const term = query.trim().toLowerCase();
-            setPosts(result.posts.filter((post) =>
-              post.caption.toLowerCase().includes(term) ||
-              post.location.toLowerCase().includes(term) ||
-              post.owner?.name.toLowerCase().includes(term) ||
-              post.owner?.username.toLowerCase().includes(term),
-            ));
-          }
-        })
-        .catch((cause: unknown) => {
-          if (!cancelled) {
-            setError(cause instanceof Error ? cause.message : 'Search is unavailable.');
-            console.error('Roommate search failed:', cause);
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    }, 200);
+    setLoading(true);
+    setError('');
+    void api.getPosts()
+      .then((result) => {
+        if (!cancelled) setPosts(result.posts);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : 'Search is unavailable.');
+          console.error('Roommate search failed:', cause);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
-  }, [isOpen, postVersion, query]);
+  }, [isOpen, postVersion]);
+
+  const matchingPosts = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return [];
+    return posts.filter((post) =>
+      post.caption.toLowerCase().includes(term) ||
+      post.location.toLowerCase().includes(term) ||
+      post.owner?.name.toLowerCase().includes(term) ||
+      post.owner?.username.toLowerCase().includes(term),
+    );
+  }, [posts, query]);
 
   if (!isOpen) return null;
 
@@ -98,10 +94,10 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
           )}
           {loading && <p className="py-8 text-center text-xs text-zinc-400">Searching...</p>}
           {error && <p role="alert" className="py-8 text-center text-xs text-rose-300">{error}</p>}
-          {!loading && !error && query.trim() && posts.length === 0 && (
+          {!loading && !error && query.trim() && matchingPosts.length === 0 && (
             <div className="py-12 text-center text-xs text-zinc-500">No matching room posts.</div>
           )}
-          {!loading && !error && posts.map((post) => (
+          {!loading && !error && matchingPosts.map((post) => (
             <button
               key={post.id}
               onClick={() => {
@@ -111,7 +107,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
               className="flex w-full items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/50 p-2.5 text-left hover:bg-zinc-800"
             >
               {post.images[0] ? (
-                <img src={post.images[0]} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                <img src={post.images[0]} alt="" loading="lazy" decoding="async" className="h-12 w-12 rounded-lg object-cover" />
               ) : (
                 <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-800">
                   <Users className="h-5 w-5 text-zinc-400" />

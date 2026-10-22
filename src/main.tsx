@@ -58,7 +58,7 @@ function AuthenticatedApp() {
   setClerkTokenGetter(getToken);
 
   return (
-    <AppProvider clerkUserId={userId} onSignOut={signOut}>
+    <AppProvider key={userId} clerkUserId={userId} onSignOut={signOut}>
       <App />
     </AppProvider>
   );

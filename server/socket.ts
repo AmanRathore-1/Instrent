@@ -14,8 +14,11 @@ const conversationPayload = z.object({
 });
 const typingPayload = conversationPayload.extend({ isTyping: z.boolean() });
 const receiptPayload = z.object({ messageId: z.string().uuid() });
+const typingTimeoutMs = 3_000;
 
 export function createSocketServer(httpServer: HttpServer): Server {
+  const typingSocketsByRoom = new Map<string, Set<string>>();
+
   const io = new Server(httpServer, {
     cors: {
       origin: (origin, callback) => {
@@ -55,6 +58,8 @@ export function createSocketServer(httpServer: HttpServer): Server {
 
   io.on('connection', (socket) => {
     const userId = socket.data.userId as string;
+    const joinedConversations = new Set<string>();
+    const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     socket.join(`user:${userId}`);
     io.emit('presence:online', { userId });
     void io.fetchSockets().then((sockets) => {
@@ -78,6 +83,17 @@ export function createSocketServer(httpServer: HttpServer): Server {
         });
         if (membership) {
           socket.join(`conversation:${parsed.data.conversationId}`);
+          joinedConversations.add(parsed.data.conversationId);
+          const otherParticipant = await prisma.conversationParticipant.findFirst({
+            where: { conversationId: parsed.data.conversationId, userId: { not: userId } },
+            select: { userId: true },
+          });
+          if (otherParticipant) {
+            const otherSockets = await io.in(`user:${otherParticipant.userId}`).fetchSockets();
+            socket.emit('presence:snapshot', {
+              userIds: otherSockets.length ? [otherParticipant.userId] : [],
+            });
+          }
           const pending = await prisma.message.findMany({
             where: {
               conversationId: parsed.data.conversationId,
@@ -110,26 +126,65 @@ export function createSocketServer(httpServer: HttpServer): Server {
     socket.on('conversation:leave', (payload: unknown) => {
       const parsed = conversationPayload.safeParse(payload);
       if (parsed.success) {
+        const conversationId = parsed.data.conversationId;
+        const timer = typingTimers.get(conversationId);
+        if (timer) clearTimeout(timer);
+        typingTimers.delete(conversationId);
+        const typingRoom = `conversation:${conversationId}`;
+        const typingSockets = typingSocketsByRoom.get(typingRoom);
+        typingSockets?.delete(socket.id);
+        if (typingSockets && typingSockets.size === 0) {
+          typingSocketsByRoom.delete(typingRoom);
+          socket.to(typingRoom).emit('conversation:typing', {
+            conversationId,
+            userId,
+            isTyping: false,
+          });
+        }
+        joinedConversations.delete(conversationId);
         void socket.leave(`conversation:${parsed.data.conversationId}`);
       }
     });
 
     socket.on('conversation:typing', async (payload: unknown) => {
       const parsed = typingPayload.safeParse(payload);
-      if (!parsed.success) return;
-      try {
-        const membership = await prisma.conversationParticipant.findFirst({
-          where: { conversationId: parsed.data.conversationId, userId },
-          select: { id: true },
-        });
-        if (!membership) return;
-        socket.to(`conversation:${parsed.data.conversationId}`).emit('conversation:typing', {
-          conversationId: parsed.data.conversationId,
-          userId,
-          isTyping: parsed.data.isTyping,
-        });
-      } catch (error) {
-        logger.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Could not authorize typing event');
+      if (!parsed.success || !joinedConversations.has(parsed.data.conversationId)) return;
+      const { conversationId, isTyping } = parsed.data;
+      const typingRoom = `conversation:${conversationId}`;
+      let typingSockets = typingSocketsByRoom.get(typingRoom);
+
+      if (!isTyping) {
+        const timer = typingTimers.get(conversationId);
+        if (timer) clearTimeout(timer);
+        typingTimers.delete(conversationId);
+        typingSockets?.delete(socket.id);
+        if (typingSockets && typingSockets.size === 0) {
+          typingSocketsByRoom.delete(typingRoom);
+          socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
+        }
+        return;
+      }
+
+      if (!typingSockets) {
+        typingSockets = new Set();
+        typingSocketsByRoom.set(typingRoom, typingSockets);
+      }
+      const wasTyping = typingSockets.has(socket.id);
+      typingSockets.add(socket.id);
+      const existingTimer = typingTimers.get(conversationId);
+      if (existingTimer) clearTimeout(existingTimer);
+      const timer = setTimeout(() => {
+        typingTimers.delete(conversationId);
+        const activeSockets = typingSocketsByRoom.get(typingRoom);
+        activeSockets?.delete(socket.id);
+        if (activeSockets && activeSockets.size === 0) {
+          typingSocketsByRoom.delete(typingRoom);
+          socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
+        }
+      }, typingTimeoutMs);
+      typingTimers.set(conversationId, timer);
+      if (!wasTyping) {
+        socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: true });
       }
     });
 
@@ -204,6 +259,21 @@ export function createSocketServer(httpServer: HttpServer): Server {
     });
 
     socket.on('disconnect', () => {
+      for (const [conversationId, timer] of typingTimers) {
+        clearTimeout(timer);
+        const typingRoom = `conversation:${conversationId}`;
+        const typingSockets = typingSocketsByRoom.get(typingRoom);
+        typingSockets?.delete(socket.id);
+        if (typingSockets && typingSockets.size === 0) {
+          typingSocketsByRoom.delete(typingRoom);
+          socket.to(typingRoom).emit('conversation:typing', {
+            conversationId,
+            userId,
+            isTyping: false,
+          });
+        }
+      }
+      typingTimers.clear();
       void io.in(`user:${userId}`).fetchSockets().then((sockets) => {
         if (sockets.length === 0) io.emit('presence:offline', { userId });
       }).catch((error: unknown) => {

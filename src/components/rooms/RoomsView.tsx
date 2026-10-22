@@ -11,6 +11,7 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
   const [rooms, setRooms] = useState<RentalRoom[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<RentalRoom | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [filters, setFilters] = useState({ city: '', minRent: '', maxRent: '', roomType: '', amenities: '', availableBefore: '', sort: 'newest' });
@@ -25,30 +26,47 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
     amenities: '', availableAt: '', status: 'AVAILABLE' as RentalRoom['status'],
   });
   const showToastRef = useRef(showToast);
+  const loadingMoreRef = useRef(false);
+  const roomRequestVersion = useRef(0);
 
   useEffect(() => {
     showToastRef.current = showToast;
   }, [showToast]);
 
   const loadRooms = useCallback(async (cursor?: string) => {
+    if (cursor && loadingMoreRef.current) return;
+    const requestVersion = ++roomRequestVersion.current;
     if (!cursor) {
       setLoading(true);
       setError('');
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    } else {
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
     }
     try {
       const activeParams = Object.fromEntries(
         Object.entries(appliedFilters).filter(([, value]) => value.trim().length > 0),
       );
       const result = await api.getRooms(activeParams, cursor);
+      if (requestVersion !== roomRequestVersion.current) return;
       setRooms((items) => cursor
         ? [...items, ...result.rooms.filter((room) => !items.some((item) => item.id === room.id))]
         : result.rooms);
       setNextCursor(result.nextCursor);
     } catch (cause) {
+      if (requestVersion !== roomRequestVersion.current) return;
       const message = cause instanceof Error ? cause.message : 'Could not load rooms.';
       setError(message);
     } finally {
-      setLoading(false);
+      if (requestVersion === roomRequestVersion.current) {
+        setLoading(false);
+        if (cursor) {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        }
+      }
     }
   }, [appliedFilters]);
 
@@ -210,8 +228,8 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
           <div>
             <div className="grid grid-cols-2 gap-2">
               {selectedRoom.media.map((asset) => asset.resourceType === 'video'
-                ? <video key={asset.id} src={asset.url} controls className="aspect-video w-full rounded-xl bg-black object-cover" />
-                : <img key={asset.id} src={asset.url} alt={selectedRoom.title} className="aspect-video w-full rounded-xl bg-zinc-900 object-cover" />)}
+                ? <video key={asset.id} src={asset.url} controls preload="metadata" className="aspect-video w-full rounded-xl bg-black object-cover" />
+                : <img key={asset.id} src={asset.url} alt={selectedRoom.title} loading="lazy" decoding="async" className="aspect-video w-full rounded-xl bg-zinc-900 object-cover" />)}
               {selectedRoom.media.length === 0 && <div className="col-span-2 grid aspect-video place-items-center rounded-xl bg-zinc-900"><Home className="h-8 w-8 text-zinc-600" /></div>}
             </div>
             {isOwner && selectedRoom.media.length > 1 && (
@@ -241,7 +259,7 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
           </div>
           <aside className="h-fit rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
             <div className="flex items-center gap-3">
-              {selectedRoom.owner.avatar && <img src={selectedRoom.owner.avatar} alt="" className="h-10 w-10 rounded-full object-cover" />}
+              {selectedRoom.owner.avatar && <img src={selectedRoom.owner.avatar} alt="" loading="lazy" decoding="async" className="h-10 w-10 rounded-full object-cover" />}
               <div><p className="text-sm font-semibold text-white">{selectedRoom.owner.name}</p><p className="text-xs text-zinc-500">@{selectedRoom.owner.username}</p></div>
             </div>
             {!isOwner && (
@@ -308,8 +326,8 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
             <button onClick={() => void openRoom(room)} className="block w-full text-left">
               <div className="relative aspect-[4/3] bg-zinc-950">
                 {room.media[0]?.resourceType === 'video'
-                  ? <video src={room.media[0].url} muted playsInline className="h-full w-full object-cover" />
-                  : room.photos[0] ? <img src={room.photos[0]} alt={room.title} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center"><Home className="h-9 w-9 text-zinc-700" /></div>}
+                  ? <video src={room.media[0].url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                  : room.photos[0] ? <img src={room.photos[0]} alt={room.title} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center"><Home className="h-9 w-9 text-zinc-700" /></div>}
                 <span className="absolute left-3 top-3 rounded-full bg-black/70 px-2 py-1 text-[10px] font-semibold text-white">{room.status.toLowerCase()}</span>
               </div>
               <div className="p-4">
@@ -326,7 +344,7 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
           </article>
         ))}
       </div>
-      {nextCursor && <button disabled={loading} onClick={() => void loadRooms(nextCursor)} className="mx-auto mt-6 block rounded-lg bg-zinc-800 px-5 py-2.5 text-xs font-semibold disabled:opacity-50">{loading ? 'Loading…' : 'Load more rooms'}</button>}
+      {nextCursor && <button disabled={loading || loadingMore} onClick={() => void loadRooms(nextCursor)} className="mx-auto mt-6 block rounded-lg bg-zinc-800 px-5 py-2.5 text-xs font-semibold disabled:opacity-50">{loadingMore ? 'Loading…' : 'Load more rooms'}</button>}
 
       {createOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4" onClick={() => !busy && setCreateOpen(false)}>

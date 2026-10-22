@@ -1835,7 +1835,7 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
       },
       select: { id: true, senderId: true },
     });
-    await prisma.message.updateMany({
+    const readResult = await prisma.message.updateMany({
       where: {
         conversationId: membership.conversation.id,
         receiverId: user.id,
@@ -1843,6 +1843,11 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
       },
       data: { isRead: true },
     });
+    if (readResult.count > 0) {
+      io.to(`user:${user.id}`).emit('conversation:read', {
+        conversationId: membership.conversation.id,
+      });
+    }
     for (const senderId of new Set(unreadMessages.map((message) => message.senderId))) {
       io.to(`user:${senderId}`).emit('message:read', {
         messageIds: unreadMessages.filter((message) => message.senderId === senderId).map((message) => message.id),
@@ -1881,6 +1886,7 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
         receiverId: message.receiverId,
         text: message.text,
         context: message.context || undefined,
+        idempotencyKey: message.idempotencyKey || undefined,
         isRead: message.isRead,
         deliveredAt: message.deliveredAt?.toISOString(),
         createdAt: message.createdAt.toISOString(),
@@ -1995,11 +2001,13 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
           receiverId: saved.receiverId,
           text: saved.text,
           context: saved.context || undefined,
+          idempotencyKey: saved.idempotencyKey || undefined,
           isRead: saved.isRead,
           deliveredAt: saved.deliveredAt?.toISOString(),
           createdAt: saved.createdAt.toISOString(),
         };
-        io.to(`conversation:${conversationId}`).emit('message:new', savedMessage);
+        io.to(`user:${user.id}`).emit('message:new', savedMessage);
+        io.to(`user:${receiverId}`).emit('message:new', savedMessage);
         io.to(`user:${user.id}`).emit('conversation:changed', { conversationId });
         io.to(`user:${receiverId}`).emit('message:notification', {
           conversationId,
@@ -2016,6 +2024,7 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
       receiverId: message.receiverId,
       text: message.text,
       context: message.context || undefined,
+      idempotencyKey: message.idempotencyKey || undefined,
       isRead: message.isRead,
       deliveredAt: message.deliveredAt?.toISOString(),
       createdAt: message.createdAt.toISOString(),

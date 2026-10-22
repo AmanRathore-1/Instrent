@@ -237,6 +237,7 @@ export interface Message {
   text: string;
   context?: MessageContext;
   imageUrl?: string;
+  idempotencyKey?: string;
   isRead: boolean;
   deliveredAt?: string;
   createdAt: string;

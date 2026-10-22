@@ -785,19 +785,26 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         take: 31,
       });
       const items = profiles.slice(0, 30);
+      const followedUsers = items.length
+        ? await prisma.follow.findMany({
+            where: {
+              followerId: viewer.id,
+              followedId: { in: items.map((profile) => profile.userId) },
+            },
+            select: { followedId: true },
+          })
+        : [];
+      const followedUserIds = new Set(followedUsers.map((follow) => follow.followedId));
       res.json({
-        profiles: await Promise.all(items.map(async (profile) => ({
+        profiles: items.map((profile) => ({
           id: profile.id,
           user: profile.user,
           budgetMin: profile.budgetMin,
           budgetMax: profile.budgetMax,
           moveInAt: profile.moveInAt?.toISOString(),
           preferences: profile.preferences,
-          isFollowing: Boolean(await prisma.follow.findUnique({
-            where: { followerId_followedId: { followerId: viewer.id, followedId: profile.userId } },
-            select: { id: true },
-          })),
-        }))),
+          isFollowing: followedUserIds.has(profile.userId),
+        })),
         nextCursor: profiles.length > 30 && items.length
           ? encodeRoomCursor({ id: items[items.length - 1].id, createdAt: items[items.length - 1].createdAt, rent: 0 })
           : null,

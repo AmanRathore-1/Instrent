@@ -1,24 +1,25 @@
-import React, { useEffect } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { useApp } from './context/AppContext.tsx';
 import { Sidebar } from './components/layout/Sidebar.tsx';
 import { MobileNav } from './components/layout/MobileNav.tsx';
 import { Header } from './components/layout/Header.tsx';
-import { HomeView } from './components/home/HomeView.tsx';
-import { FindRoommateView } from './components/marketplace/FindRoommateView.tsx';
-import { PropertyProfileView } from './components/profile/PropertyProfileView.tsx';
-import { TenantProfileView } from './components/profile/TenantProfileView.tsx';
-import { MessagesView } from './components/messages/MessagesView.tsx';
-import { OwnerDashboard } from './components/dashboard/OwnerDashboard.tsx';
-import { AdminDashboard } from './components/dashboard/AdminDashboard.tsx';
-import { SavedView } from './components/saved/SavedView.tsx';
-import { SettingsView } from './components/settings/SettingsView.tsx';
-import { CreateModal } from './components/create/CreateModal.tsx';
 import { NotificationsDrawer } from './components/notifications/NotificationsDrawer.tsx';
 import { SearchModal } from './components/search/SearchModal.tsx';
 import { VisitScheduleModal } from './components/modals/VisitScheduleModal.tsx';
-import { ReelsView } from './components/reels/ReelsView.tsx';
-import { RoomsView } from './components/rooms/RoomsView.tsx';
-import { RoommateFinderView } from './components/roommates/RoommateFinderView.tsx';
+
+const HomeView = React.lazy(() => import('./components/home/HomeView.tsx').then(({ HomeView }) => ({ default: HomeView })));
+const ReelsView = React.lazy(() => import('./components/reels/ReelsView.tsx').then(({ ReelsView }) => ({ default: ReelsView })));
+const FindRoommateView = React.lazy(() => import('./components/marketplace/FindRoommateView.tsx').then(({ FindRoommateView }) => ({ default: FindRoommateView })));
+const RoomsView = React.lazy(() => import('./components/rooms/RoomsView.tsx').then(({ RoomsView }) => ({ default: RoomsView })));
+const RoommateFinderView = React.lazy(() => import('./components/roommates/RoommateFinderView.tsx').then(({ RoommateFinderView }) => ({ default: RoommateFinderView })));
+const MessagesView = React.lazy(() => import('./components/messages/MessagesView.tsx').then(({ MessagesView }) => ({ default: MessagesView })));
+const SavedView = React.lazy(() => import('./components/saved/SavedView.tsx').then(({ SavedView }) => ({ default: SavedView })));
+const SettingsView = React.lazy(() => import('./components/settings/SettingsView.tsx').then(({ SettingsView }) => ({ default: SettingsView })));
+const PropertyProfileView = React.lazy(() => import('./components/profile/PropertyProfileView.tsx').then(({ PropertyProfileView }) => ({ default: PropertyProfileView })));
+const TenantProfileView = React.lazy(() => import('./components/profile/TenantProfileView.tsx').then(({ TenantProfileView }) => ({ default: TenantProfileView })));
+const OwnerDashboard = React.lazy(() => import('./components/dashboard/OwnerDashboard.tsx').then(({ OwnerDashboard }) => ({ default: OwnerDashboard })));
+const AdminDashboard = React.lazy(() => import('./components/dashboard/AdminDashboard.tsx').then(({ AdminDashboard }) => ({ default: AdminDashboard })));
+const CreateModal = React.lazy(() => import('./components/create/CreateModal.tsx').then(({ CreateModal }) => ({ default: CreateModal })));
 
 const AppContent: React.FC = () => {
   const {
@@ -26,6 +27,7 @@ const AppContent: React.FC = () => {
     activeView,
     setActiveView,
     viewParams,
+    isCreateModalOpen,
     toasts,
     isNotificationsOpen,
     openNotifications,
@@ -54,34 +56,42 @@ const AppContent: React.FC = () => {
 
         {/* View Routing */}
         <main className="flex-1 overflow-x-hidden">
-          {activeView === 'home' && <HomeView />}
-          {activeView === 'reels' && <ReelsView />}
-          {(activeView === 'find-property' || activeView === 'explore') && <FindRoommateView />}
-          {activeView === 'rooms' && <RoomsView initialRoomId={viewParams.roomId} />}
-          {activeView === 'roommates' && <RoommateFinderView />}
-          {activeView === 'messages' && (
-            <MessagesView
-              initialConversationId={viewParams.conversationId}
-              initialContext={viewParams.context}
-            />
-          )}
-          {activeView === 'saved' && <SavedView />}
-          {activeView === 'settings' && <SettingsView />}
-          {activeView === 'property-profile' && (
-            <PropertyProfileView
-              propertyId={viewParams.propertyId}
-              onBack={() => setActiveView('home')}
-            />
-          )}
-          {activeView === 'user-profile' && (
-            <TenantProfileView
-              username={viewParams.username || currentUser?.username || ''}
-              refreshKey={viewParams.refreshKey}
-              onBack={() => setActiveView('home')}
-            />
-          )}
-          {activeView === 'owner-dashboard' && <OwnerDashboard />}
-          {activeView === 'admin-dashboard' && <AdminDashboard />}
+          <Suspense
+            fallback={
+              <div role="status" className="flex min-h-48 items-center justify-center text-sm text-zinc-400">
+                Loading view...
+              </div>
+            }
+          >
+            {activeView === 'home' && <HomeView />}
+            {activeView === 'reels' && <ReelsView />}
+            {(activeView === 'find-property' || activeView === 'explore') && <FindRoommateView />}
+            {activeView === 'rooms' && <RoomsView initialRoomId={viewParams.roomId} />}
+            {activeView === 'roommates' && <RoommateFinderView />}
+            {activeView === 'messages' && (
+              <MessagesView
+                initialConversationId={viewParams.conversationId}
+                initialContext={viewParams.context}
+              />
+            )}
+            {activeView === 'saved' && <SavedView />}
+            {activeView === 'settings' && <SettingsView />}
+            {activeView === 'property-profile' && (
+              <PropertyProfileView
+                propertyId={viewParams.propertyId}
+                onBack={() => setActiveView('home')}
+              />
+            )}
+            {activeView === 'user-profile' && (
+              <TenantProfileView
+                username={viewParams.username || currentUser?.username || ''}
+                refreshKey={viewParams.refreshKey}
+                onBack={() => setActiveView('home')}
+              />
+            )}
+            {activeView === 'owner-dashboard' && <OwnerDashboard />}
+            {activeView === 'admin-dashboard' && <AdminDashboard />}
+          </Suspense>
         </main>
 
         {/* Mobile Bottom Navigation */}
@@ -89,7 +99,11 @@ const AppContent: React.FC = () => {
       </div>
 
       {/* Global Modals & Drawers */}
-      <CreateModal />
+      {isCreateModalOpen && (
+        <Suspense fallback={null}>
+          <CreateModal />
+        </Suspense>
+      )}
       <NotificationsDrawer isOpen={isNotificationsOpen} onClose={closeNotifications} />
       <SearchModal isOpen={isSearchOpen} onClose={closeSearch} />
       <VisitScheduleModal />

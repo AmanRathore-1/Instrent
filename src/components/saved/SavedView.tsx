@@ -46,7 +46,7 @@ export const SavedView: React.FC = () => {
           <article key={room.id} className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
             <button onClick={() => { setViewParams({ roomId: room.id }); setActiveView('rooms'); }} className="block w-full text-left">
               {room.photos[0]
-                ? <img src={room.photos[0]} alt={room.title} className="aspect-[4/3] w-full object-cover" />
+                ? <img src={room.photos[0]} alt={room.title} loading="lazy" decoding="async" className="aspect-[4/3] w-full object-cover" />
                 : <div className="grid aspect-[4/3] place-items-center bg-zinc-950"><Home className="h-8 w-8 text-zinc-700" /></div>}
               <div className="p-4">
                 <div className="flex justify-between gap-2"><h2 className="truncate text-sm font-bold text-white">{room.title}</h2><span className="whitespace-nowrap text-xs font-bold text-emerald-300">₹{room.rent.toLocaleString('en-IN')}/mo</span></div>

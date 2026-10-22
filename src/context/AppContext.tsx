@@ -4,8 +4,10 @@ import {
   useState,
   useEffect,
   useRef,
+  useCallback,
+  useMemo,
 } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
 import type { ReactNode } from 'react';
 
@@ -134,7 +136,10 @@ export const AppProvider = ({
     ownerId?: string;
   }>({ isOpen: false });
 
-  const showToast = (
+  const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const userSyncRequest = useRef<Promise<void> | null>(null);
+
+  const showToast = useCallback((
     message: string,
     type: 'success' | 'info' | 'warning' | 'error' = 'success'
   ) => {
@@ -142,25 +147,42 @@ export const AppProvider = ({
 
     setToasts((prev) => [...prev, { id, message, type }]);
 
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      toastTimers.current.delete(id);
       setToasts((prev) => prev.filter((toast) => toast.id !== id));
     }, 4000);
-  };
-  const showToastRef = useRef(showToast);
+    toastTimers.current.set(id, timer);
+  }, []);
 
-  const refreshUserData = async (): Promise<void> => {
+  useEffect(() => () => {
+    toastTimers.current.forEach((timer) => clearTimeout(timer));
+    toastTimers.current.clear();
+  }, []);
+
+  const refreshUserData = useCallback(async (): Promise<void> => {
+    if (userSyncRequest.current) return userSyncRequest.current;
+    const request = (async () => {
+      try {
+        const data = await api.syncCurrentUser();
+        setCurrentUser(data.user);
+        setUserLoadError(null);
+      } catch (error) {
+        console.error('Failed to sync the Clerk account with the app profile:', error);
+        setCurrentUser(null);
+        throw error;
+      }
+    })();
+    userSyncRequest.current = request;
     try {
-      const data = await api.syncCurrentUser();
-      setCurrentUser(data.user);
-      setUserLoadError(null);
-    } catch (error) {
-      console.error('Failed to sync the Clerk account with the app profile:', error);
-      setCurrentUser(null);
-      throw error;
+      await request;
+    } finally {
+      if (userSyncRequest.current === request) {
+        userSyncRequest.current = null;
+      }
     }
-  };
+  }, []);
 
-  const refreshUnreadMessages = async (): Promise<void> => {
+  const refreshUnreadMessages = useCallback(async (): Promise<void> => {
     try {
       const result = await api.getUnreadMessageCount();
       setUnreadMessagesCount(result.unreadCount);
@@ -168,9 +190,9 @@ export const AppProvider = ({
       console.error('Failed to refresh unread messages:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const refreshNotifications = async (): Promise<void> => {
+  const refreshNotifications = useCallback(async (): Promise<void> => {
     try {
       const notifications = await api.getNotifications();
       setUnreadNotificationsCount(notifications.unreadCount);
@@ -178,13 +200,10 @@ export const AppProvider = ({
       console.warn('Failed to fetch notifications:', error);
       throw error;
     }
-  };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
-
-    setIsUserLoading(true);
-    setUserLoadError(null);
 
     const initializeUser = async () => {
       try {
@@ -192,8 +211,7 @@ export const AppProvider = ({
 
         if (!isMounted) return;
 
-        await refreshNotifications();
-        await refreshUnreadMessages();
+        await Promise.all([refreshNotifications(), refreshUnreadMessages()]);
       } catch (error: unknown) {
         console.error('Failed to initialize user profile:', error);
 
@@ -216,16 +234,18 @@ export const AppProvider = ({
     return () => {
       isMounted = false;
     };
-  }, [clerkUserId]);
+  }, [clerkUserId, refreshNotifications, refreshUnreadMessages, refreshUserData]);
+
+  const currentUserId = currentUser?.id;
 
   useEffect(() => {
     let isCancelled = false;
     let socket: Socket | null = null;
+    let teardownSocket = () => {};
     let reconnectWarningTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectWarningShown = false;
-    setRealtimeSocket(null);
 
-    if (!currentUser) {
+    if (!currentUserId) {
       return () => {
         isCancelled = true;
       };
@@ -237,69 +257,90 @@ export const AppProvider = ({
         reconnectWarningTimer = null;
         if (isCancelled || socket?.connected || reconnectWarningShown) return;
         reconnectWarningShown = true;
-        showToastRef.current('Real-time updates are unavailable. Check your connection.', 'error');
+        showToast('Real-time updates are unavailable. Check your connection.', 'error');
       }, realtimeDisconnectWarningDelayMs);
     };
 
-    socket = io({
-      auth: (callback) => {
-        void getClerkAccessToken()
-          .then((token) => callback({ token: token ?? '' }))
-          .catch(() => callback({ token: '' }));
-      },
-    });
-    setRealtimeSocket(socket);
+    void import('socket.io-client')
+      .then(({ io }) => {
+        if (isCancelled) return;
+        const connectedSocket = io({
+          auth: (callback) => {
+            void getClerkAccessToken()
+              .then((token) => callback({ token: token ?? '' }))
+              .catch(() => callback({ token: '' }));
+          },
+        });
+        socket = connectedSocket;
+        setRealtimeSocket(connectedSocket);
 
-    const handleConnect = () => {
-      if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
-      reconnectWarningTimer = null;
-      reconnectWarningShown = false;
-      void Promise.all([refreshNotifications(), refreshUnreadMessages()]).catch((error: unknown) => {
-        console.error('Could not resync realtime badge counts:', error);
-      });
-    };
-    const handleDisconnect = () => scheduleReconnectWarning();
-    const handleConnectError = () => scheduleReconnectWarning();
-    const handleMessageNotification = () => {
-      void refreshUnreadMessages().catch((error: unknown) => {
-        console.error('Could not sync unread message count:', error);
-      });
-    };
-    const handleNotification = () => {
-      void refreshNotifications().catch((error: unknown) => {
-        console.error('Could not sync notifications:', error);
-      });
-    };
+        const handleConnect = () => {
+          if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
+          reconnectWarningTimer = null;
+          reconnectWarningShown = false;
+          void Promise.all([refreshNotifications(), refreshUnreadMessages()]).catch((error: unknown) => {
+            console.error('Could not resync realtime badge counts:', error);
+          });
+        };
+        const handleDisconnect = () => scheduleReconnectWarning();
+        const handleConnectError = () => scheduleReconnectWarning();
+        const handleIncomingMessage = (message: { id: string; receiverId: string }) => {
+          if (message.receiverId === currentUserId) {
+            connectedSocket.emit('message:delivered', { messageId: message.id });
+          }
+        };
+        const handleMessageNotification = () => {
+          void refreshUnreadMessages().catch((error: unknown) => {
+            console.error('Could not sync unread message count:', error);
+          });
+        };
+        const handleNotification = () => {
+          void refreshNotifications().catch((error: unknown) => {
+            console.error('Could not sync notifications:', error);
+          });
+        };
 
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-    socket.on('connect_error', handleConnectError);
-    socket.on('message:notification', handleMessageNotification);
-    socket.on('notification:new', handleNotification);
-    scheduleReconnectWarning();
+        connectedSocket.on('connect', handleConnect);
+        connectedSocket.on('disconnect', handleDisconnect);
+        connectedSocket.on('connect_error', handleConnectError);
+        connectedSocket.on('message:new', handleIncomingMessage);
+        connectedSocket.on('message:notification', handleMessageNotification);
+        connectedSocket.on('notification:new', handleNotification);
+        teardownSocket = () => {
+          connectedSocket.off('connect', handleConnect);
+          connectedSocket.off('disconnect', handleDisconnect);
+          connectedSocket.off('connect_error', handleConnectError);
+          connectedSocket.off('message:new', handleIncomingMessage);
+          connectedSocket.off('message:notification', handleMessageNotification);
+          connectedSocket.off('notification:new', handleNotification);
+          connectedSocket.disconnect();
+        };
+        scheduleReconnectWarning();
+      })
+      .catch((error: unknown) => {
+        if (isCancelled) return;
+        console.error('Failed to initialize real-time updates:', error);
+        showToast('Real-time updates could not be initialized.', 'error');
+      });
 
     return () => {
       isCancelled = true;
       if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
-      socket?.off('connect', handleConnect);
-      socket?.off('disconnect', handleDisconnect);
-      socket?.off('connect_error', handleConnectError);
-      socket?.off('message:notification', handleMessageNotification);
-      socket?.off('notification:new', handleNotification);
-      socket?.disconnect();
+      teardownSocket();
+      socket = null;
     };
-  }, [currentUser?.id]);
+  }, [currentUserId, refreshNotifications, refreshUnreadMessages, showToast]);
 
-  const openCreateModal = (tab: 'post' | 'reel' = 'post') => {
+  const openCreateModal = useCallback((tab: 'post' | 'reel' = 'post') => {
     setCreateModalTab(tab);
     setIsCreateModalOpen(true);
-  };
+  }, []);
 
-  const closeCreateModal = () => {
+  const closeCreateModal = useCallback(() => {
     setIsCreateModalOpen(false);
-  };
+  }, []);
 
-  const openChatWith = async (
+  const openChatWith = useCallback(async (
     targetUserId: string,
     context?: MessageContext
   ) => {
@@ -320,28 +361,28 @@ export const AppProvider = ({
         'error'
       );
     }
-  };
+  }, [showToast]);
 
-  const openPropertyProfile = (propertyId: string) => {
+  const openPropertyProfile = useCallback((propertyId: string) => {
     setViewParams({ propertyId });
     setActiveView('property-profile');
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
-  const openUserProfile = (username: string) => {
+  const openUserProfile = useCallback((username: string) => {
     setViewParams({ username, refreshKey: Date.now() });
     setActiveView('user-profile');
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
-  const openListingDetail = (listingId: string) => {
+  const openListingDetail = useCallback((listingId: string) => {
     setViewParams({ listingId });
     setActiveView('home');
-  };
+  }, []);
 
-  const switchUserRole = async (role: UserRole): Promise<void> => {
+  const switchUserRole = useCallback(async (role: UserRole): Promise<void> => {
     try {
       const result = await api.switchRole(role);
 
@@ -353,9 +394,9 @@ export const AppProvider = ({
         'error'
       );
     }
-  };
+  }, [showToast]);
 
-  const signOut = async (): Promise<void> => {
+  const signOut = useCallback(async (): Promise<void> => {
     try {
       await onSignOut();
       setCurrentUser(null);
@@ -366,9 +407,9 @@ export const AppProvider = ({
         'error'
       );
     }
-  };
+  }, [onSignOut, showToast]);
 
-  const openScheduleVisit = (
+  const openScheduleVisit = useCallback((
     propertyId: string,
     propertyTitle: string,
     ownerId: string
@@ -379,17 +420,83 @@ export const AppProvider = ({
       propertyTitle,
       ownerId,
     });
-  };
+  }, []);
 
-  const closeScheduleVisit = () => {
+  const closeScheduleVisit = useCallback(() => {
     setScheduleVisitData({ isOpen: false });
-  };
+  }, []);
 
-  const openNotifications = () => setIsNotificationsOpen(true);
-  const closeNotifications = () => setIsNotificationsOpen(false);
+  const openNotifications = useCallback(() => setIsNotificationsOpen(true), []);
+  const closeNotifications = useCallback(() => setIsNotificationsOpen(false), []);
 
-  const openSearch = () => setIsSearchOpen(true);
-  const closeSearch = () => setIsSearchOpen(false);
+  const openSearch = useCallback(() => setIsSearchOpen(true), []);
+  const closeSearch = useCallback(() => setIsSearchOpen(false), []);
+
+  const contextValue = useMemo<AppContextType>(() => ({
+    currentUser,
+    activeView,
+    setActiveView,
+    viewParams,
+    setViewParams,
+    isCreateModalOpen,
+    createModalTab,
+    openCreateModal,
+    closeCreateModal,
+    unreadNotificationsCount,
+    unreadMessagesCount,
+    openChatWith,
+    openPropertyProfile,
+    openUserProfile,
+    openListingDetail,
+    switchUserRole,
+    signOut,
+    toasts,
+    showToast,
+    refreshUserData,
+    refreshNotifications,
+    refreshUnreadMessages,
+    realtimeSocket,
+    scheduleVisitData,
+    openScheduleVisit,
+    closeScheduleVisit,
+    isNotificationsOpen,
+    openNotifications,
+    closeNotifications,
+    isSearchOpen,
+    openSearch,
+    closeSearch,
+  }), [
+    activeView,
+    closeCreateModal,
+    closeNotifications,
+    closeScheduleVisit,
+    closeSearch,
+    createModalTab,
+    currentUser,
+    isCreateModalOpen,
+    isNotificationsOpen,
+    isSearchOpen,
+    openChatWith,
+    openCreateModal,
+    openNotifications,
+    openPropertyProfile,
+    openScheduleVisit,
+    openSearch,
+    openUserProfile,
+    openListingDetail,
+    realtimeSocket,
+    refreshNotifications,
+    refreshUnreadMessages,
+    refreshUserData,
+    scheduleVisitData,
+    showToast,
+    signOut,
+    switchUserRole,
+    toasts,
+    unreadMessagesCount,
+    unreadNotificationsCount,
+    viewParams,
+  ]);
 
   if (isUserLoading) {
     return (
@@ -414,7 +521,7 @@ export const AppProvider = ({
             setUserLoadError(null);
 
             void refreshUserData()
-              .then(() => refreshNotifications())
+              .then(() => Promise.all([refreshNotifications(), refreshUnreadMessages()]))
               .catch((error: unknown) => {
                 console.error('Failed to retry user initialization:', error);
 
@@ -444,48 +551,7 @@ export const AppProvider = ({
 
   return (
     <AppContext.Provider
-      value={{
-        currentUser,
-        activeView,
-        setActiveView,
-        viewParams,
-        setViewParams,
-
-        isCreateModalOpen,
-        createModalTab,
-        openCreateModal,
-        closeCreateModal,
-
-        unreadNotificationsCount,
-        unreadMessagesCount,
-
-        openChatWith,
-        openPropertyProfile,
-        openUserProfile,
-        openListingDetail,
-        switchUserRole,
-        signOut,
-
-        toasts,
-        showToast,
-
-        refreshUserData,
-        refreshNotifications,
-        refreshUnreadMessages,
-        realtimeSocket,
-
-        scheduleVisitData,
-        openScheduleVisit,
-        closeScheduleVisit,
-
-        isNotificationsOpen,
-        openNotifications,
-        closeNotifications,
-
-        isSearchOpen,
-        openSearch,
-        closeSearch,
-      }}
+      value={contextValue}
     >
       {children}
     </AppContext.Provider>

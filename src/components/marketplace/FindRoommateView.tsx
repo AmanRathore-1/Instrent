@@ -4,11 +4,11 @@ import type { Comment, Post } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 
-const PostInteractions: React.FC<{
+const PostInteractions = React.memo<{
   post: Post;
   realtimeSocket: ReturnType<typeof useApp>['realtimeSocket'];
   showToast: ReturnType<typeof useApp>['showToast'];
-}> = ({ post, realtimeSocket, showToast }) => {
+}>(({ post, realtimeSocket, showToast }) => {
   const { currentUser } = useApp();
   const [isLiked, setIsLiked] = useState(Boolean(post.isLiked));
   const [isSaved, setIsSaved] = useState(Boolean(post.isSaved));
@@ -194,7 +194,7 @@ const PostInteractions: React.FC<{
       )}
     </div>
   );
-};
+});
 
 export const FindRoommateView: React.FC<{ mode?: 'feed' | 'roommates' }> = ({ mode = 'roommates' }) => {
   const { currentUser, openChatWith, openUserProfile, showToast, realtimeSocket } = useApp();
@@ -363,7 +363,7 @@ export const FindRoommateView: React.FC<{ mode?: 'feed' | 'roommates' }> = ({ mo
                   disabled={!owner}
                 >
                   {owner?.avatar ? (
-                    <img src={owner.avatar} alt="" className="h-10 w-10 rounded-full object-cover" />
+                    <img src={owner.avatar} alt="" loading="lazy" decoding="async" className="h-10 w-10 rounded-full object-cover" />
                   ) : (
                     <span className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-700 text-xs font-bold text-white">
                       {owner?.name.slice(0, 1).toUpperCase() || '?'}
@@ -390,7 +390,7 @@ export const FindRoommateView: React.FC<{ mode?: 'feed' | 'roommates' }> = ({ mo
               </div>
 
               <div className="relative aspect-square bg-zinc-950">
-                <img src={post.images[0]} alt={post.caption} className="h-full w-full object-cover" />
+                <img src={post.images[0]} alt={post.caption} loading="lazy" decoding="async" className="h-full w-full object-cover" />
               </div>
 
               <div className="space-y-2 p-4">
