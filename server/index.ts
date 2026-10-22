@@ -373,6 +373,7 @@ const serializeReel = async (reel: {
   videoUrl: string;
   publicId: string;
   coverUrl: string | null;
+  location: string;
   createdAt: Date;
   author: DbUser;
   _count: { likes: number; comments: number };
@@ -383,7 +384,7 @@ const serializeReel = async (reel: {
   videoUrl: reel.videoUrl,
   thumbnailUrl: reel.coverUrl || createVideoThumbnailUrl(reel.publicId),
   caption: reel.caption,
-  location: '',
+  location: reel.location,
   category: 'ROOM_TOUR' as const,
   likesCount: reel._count.likes,
   commentsCount: reel._count.comments,
@@ -534,6 +535,7 @@ app.post('/api/reels', requireUser, async (req, res, next) => {
     const body = z.object({
       caption: z.string().trim().min(1).max(2200),
       publicId: z.string().min(1).max(255),
+      location: z.string().trim().max(120).optional().default(''),
     }).strict().safeParse(req.body);
     if (!user) {
       res.status(404).json({ error: 'Profile not found.' });
@@ -581,6 +583,7 @@ app.post('/api/reels', requireUser, async (req, res, next) => {
           data: {
             authorId: user.id,
             caption: body.data.caption,
+            location: body.data.location,
             videoUrl: asset.url,
             publicId: asset.publicId,
             coverUrl: createVideoThumbnailUrl(asset.publicId),
@@ -612,7 +615,10 @@ app.patch('/api/reels/:reelId', requireUser, async (req, res, next) => {
   try {
     const user = await findSignedInUser(req, res);
     const reelId = routeParam(req.params.reelId);
-    const body = z.object({ caption: z.string().trim().min(1).max(2200) }).strict().safeParse(req.body);
+    const body = z.object({
+      caption: z.string().trim().min(1).max(2200),
+      location: z.string().trim().max(120).optional(),
+    }).strict().safeParse(req.body);
     if (!user || !reelId) {
       res.status(user ? 400 : 404).json({ error: user ? 'Invalid reel id.' : 'Profile not found.' });
       return;
@@ -633,7 +639,10 @@ app.patch('/api/reels/:reelId', requireUser, async (req, res, next) => {
     const updated = await persistThenPublish(
       () => prisma.reel.update({
         where: { id: reelId },
-        data: { caption: body.data.caption },
+        data: {
+          caption: body.data.caption,
+          ...(body.data.location !== undefined ? { location: body.data.location } : {}),
+        },
         include: {
           author: true,
           _count: { select: { likes: true, comments: true } },
@@ -1481,7 +1490,7 @@ app.get('/api/users/:username', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'User not found.' });
       return;
     }
-    const [posts, isFollowing] = await Promise.all([
+    const [posts, reels, isFollowing] = await Promise.all([
       prisma.post.findMany({
         where: { authorId: user.id },
         include: {
@@ -1490,6 +1499,16 @@ app.get('/api/users/:username', requireUser, async (req, res, next) => {
           _count: { select: { likes: true, comments: true, saves: true } },
           likes: { where: { userId: signedInUser.id }, select: { id: true } },
           saves: { where: { userId: signedInUser.id }, select: { id: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      }),
+      prisma.reel.findMany({
+        where: { authorId: user.id },
+        include: {
+          author: true,
+          _count: { select: { likes: true, comments: true } },
+          likes: { where: { userId: signedInUser.id }, select: { id: true } },
         },
         orderBy: { createdAt: 'desc' },
         take: 100,
@@ -1505,6 +1524,7 @@ app.get('/api/users/:username', requireUser, async (req, res, next) => {
         ...await serializePost(post, signedInUser.id),
         isFollowingOwner: Boolean(isFollowing),
       }))),
+      reels: await Promise.all(reels.map((reel) => serializeReel(reel, signedInUser.id))),
     });
   } catch (error) {
     next(error);

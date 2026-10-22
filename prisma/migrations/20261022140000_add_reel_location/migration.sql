@@ -1,0 +1,2 @@
+ALTER TABLE "rentreel"."Reel"
+ADD COLUMN "location" VARCHAR(120) NOT NULL DEFAULT '';

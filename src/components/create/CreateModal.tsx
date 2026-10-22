@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Film, ImagePlus, MapPin, Trash2, Upload, Video, X } from 'lucide-react';
+import { Check, ImagePlus, MapPin, Trash2, Upload, Video, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 import { api } from '../../lib/api.ts';
 
@@ -15,7 +15,6 @@ export const CreateModal: React.FC = () => {
     currentUser,
     isCreateModalOpen,
     createModalTab,
-    openCreateModal,
     closeCreateModal,
     showToast,
     openUserProfile,
@@ -153,7 +152,11 @@ export const CreateModal: React.FC = () => {
       setUploadedVideoId(publicId);
     }
     if (!publicId) throw new Error('Choose a video before publishing.');
-    await api.createReel({ publicId, caption: caption.trim() });
+    await api.createReel({
+      publicId,
+      caption: caption.trim(),
+      location: location.trim(),
+    });
   };
 
   const publish = async (event: React.FormEvent) => {
@@ -184,7 +187,8 @@ export const CreateModal: React.FC = () => {
         showToast('Your reel is live.', 'success');
         resetComposer();
         closeCreateModal();
-        setActiveView('reels');
+        if (currentUser) openUserProfile(currentUser.username);
+        else setActiveView('reels');
       }
     } catch (error) {
       console.error(`Failed to upload or publish ${mode}:`, error);
@@ -210,9 +214,17 @@ export const CreateModal: React.FC = () => {
       >
         <header className="flex items-center justify-between border-b border-zinc-800 px-5 py-4 sm:px-6">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-400">Create something new</p>
-            <h2 id="create-room-title" className="mt-1 text-lg font-bold text-white">Share your space</h2>
-            <p className="mt-1 text-xs text-zinc-400">Publish photos to your profile or a video reel.</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-rose-400">
+              {mode === 'post' ? 'Create a room post' : 'Create a room reel'}
+            </p>
+            <h2 id="create-room-title" className="mt-1 text-lg font-bold text-white">
+              {mode === 'post' ? 'Share your space' : 'Upload a room tour'}
+            </h2>
+            <p className="mt-1 text-xs text-zinc-400">
+              {mode === 'post'
+                ? 'Share room photos on your profile.'
+                : 'Upload a room tour video from your profile.'}
+            </p>
           </div>
           <button
             type="button"
@@ -224,31 +236,6 @@ export const CreateModal: React.FC = () => {
             <X className="h-5 w-5" />
           </button>
         </header>
-
-        <div className="grid grid-cols-2 gap-2 border-b border-zinc-800 px-5 py-3 sm:px-6">
-          <button
-            type="button"
-            onClick={() => openCreateModal('post')}
-            disabled={isPublishing}
-            aria-pressed={mode === 'post'}
-            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-xs font-bold transition ${
-              mode === 'post' ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/40' : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
-            }`}
-          >
-            <ImagePlus className="h-4 w-4" /> Photo post
-          </button>
-          <button
-            type="button"
-            onClick={() => openCreateModal('reel')}
-            disabled={isPublishing}
-            aria-pressed={mode === 'reel'}
-            className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-xs font-bold transition ${
-              mode === 'reel' ? 'bg-rose-500/15 text-rose-300 ring-1 ring-rose-500/40' : 'text-zinc-400 hover:bg-zinc-900 hover:text-white'
-            }`}
-          >
-            <Film className="h-4 w-4" /> Video reel
-          </button>
-        </div>
 
         <form onSubmit={publish} className="flex min-h-0 flex-1 flex-col">
           <div className="flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
@@ -347,10 +334,27 @@ export const CreateModal: React.FC = () => {
                 placeholder={mode === 'post'
                   ? 'Describe the room, availability, and who you’re hoping to live with.'
                   : 'Tell people what makes this space special.'}
-                className="mt-1.5 w-full resize-y rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-xs font-normal text-white outline-none placeholder:text-zinc-600 focus:border-rose-500 disabled:opacity-60"
+                className="mt-1.5 w-full resize-y rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-3 text-xs font-normal text-white outline-none placeholder:text-zinc-600 border-white focus:border-white disabled:opacity-60"
               />
               <span className="mt-1 block text-right font-normal text-zinc-500">{caption.length}/2200</span>
             </label>
+
+            {mode === 'reel' && (
+              <label className="block text-xs font-semibold text-zinc-300">
+                Location (optional)
+                <span className="relative mt-1.5 block">
+                  <MapPin className="absolute left-3 top-3 h-4 w-4 text-zinc-500" />
+                  <input
+                    value={location}
+                    onChange={(event) => setLocation(event.target.value)}
+                    maxLength={120}
+                    disabled={isPublishing}
+                    placeholder="Area, city"
+                    className="w-full rounded-xl border border-zinc-800 bg-zinc-900 py-2.5 pl-9 pr-3 text-xs font-normal text-white outline-none placeholder:text-zinc-600 focus:border-rose-500 disabled:opacity-60"
+                  />
+                </span>
+              </label>
+            )}
 
             {mode === 'post' && (
               <>
