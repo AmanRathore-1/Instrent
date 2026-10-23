@@ -1,5 +1,5 @@
 import React from 'react';
-import { Building2, Film, Home, MessageSquare, PlusCircle, Search, Settings, UserRound, Users } from 'lucide-react';
+import { Building2, Film, Home, MessageSquare, PlusCircle, Settings, UserRound, Users } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 
 export const Sidebar: React.FC = () => {
@@ -8,8 +8,7 @@ export const Sidebar: React.FC = () => {
   const navigation = [
     { id: 'home' as const, label: 'Home', icon: Home },
     { id: 'reels' as const, label: 'Reels', icon: Film },
-    { id: 'rooms' as const, label: 'Browse rooms', icon: Search },
-    { id: 'roommates' as const, label: 'Find roommate', icon: Users },
+    { id: 'roommates' as const, label: 'Find Roommate', icon: Users },
     { id: 'messages' as const, label: 'Messages', icon: MessageSquare },
   ];
 

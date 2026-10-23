@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Home, Search, PlusCircle, MessageSquare, User } from 'lucide-react';
+import { Film, Home, Users, PlusCircle, MessageSquare, User } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 
 export const MobileNav: React.FC = () => {
@@ -27,13 +27,13 @@ export const MobileNav: React.FC = () => {
 
       {/* Find Roommate */}
       <button
-        onClick={() => setActiveView('rooms')}
+        onClick={() => setActiveView('roommates')}
         className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${
-          activeView === 'rooms' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
+          activeView === 'roommates' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
         }`}
       >
-        <Search className="w-5 h-5 stroke-[2.2]" />
-        <span className="text-[10px] mt-0.5 font-semibold">Rooms</span>
+        <Users className="w-5 h-5 stroke-[2.2]" />
+        <span className="text-[10px] mt-0.5 font-semibold">Roommate</span>
       </button>
 
       <button

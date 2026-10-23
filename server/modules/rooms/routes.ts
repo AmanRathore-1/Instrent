@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { verifyUploadedAsset, deleteCloudinaryAssets } from '../../cloudinary.js';
 import { canManageRoom, canViewRoomAddress } from './authorization.js';
 import { roomCreateSchema, roomSearchSchema, roomUpdateSchema, roommateProfileSchema, roommateSearchSchema } from './validation.js';
+import { deleteLegacyRoom, syncLegacyRoom } from '../../legacy-sync.js';
 
 type RoomRoutesDependencies = {
   prisma: PrismaClient;
@@ -15,7 +16,6 @@ type RoomRoutesDependencies = {
 };
 
 type RoomCursor = { id: string; createdAt: Date; rent?: number };
-const queryString = (value: unknown) => typeof value === 'string' ? value : undefined;
 const routeParam = (value: string | string[] | undefined) =>
   typeof value === 'string' ? value : undefined;
 
@@ -214,17 +214,11 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
       const take = Number.isInteger(takeValue) ? Math.min(Math.max(takeValue, 1), 50) : 20;
       const search = roomSearchSchema.safeParse(req.query);
       if (!search.success) {
-        res.status(400).json({ error: 'Provide valid room filters.' });
+        const issue = search.error.issues[0]?.message;
+        res.status(400).json({ error: issue || 'Provide valid room filters.' });
         return;
       }
       const { minRent, maxRent } = search.data;
-      const status = queryString(req.query.status);
-      const statusSchema = z.enum(['AVAILABLE', 'UNAVAILABLE', 'RENTED']);
-      const parsedStatus = status ? statusSchema.safeParse(status) : undefined;
-      if (parsedStatus && !parsedStatus.success) {
-        res.status(400).json({ error: 'Invalid room status.' });
-        return;
-      }
       const amenities = search.data.amenities?.split(',').map((item) => item.trim()).filter(Boolean) || [];
       const sort = search.data.sort;
       if (!['newest', 'rent-asc', 'rent-desc'].includes(sort)) {
@@ -233,9 +227,20 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
       }
       const availableDate = search.data.availableBefore;
       const where: Prisma.RoomWhereInput = {
-        status: parsedStatus?.success ? parsedStatus.data : 'AVAILABLE',
+        status: search.data.status || 'AVAILABLE',
+        ...(search.data.q ? {
+          OR: [
+            { title: { contains: search.data.q, mode: 'insensitive' } },
+            { description: { contains: search.data.q, mode: 'insensitive' } },
+            { city: { contains: search.data.q, mode: 'insensitive' } },
+            { area: { contains: search.data.q, mode: 'insensitive' } },
+          ],
+        } : {}),
         ...(search.data.city ? {
           city: { contains: search.data.city, mode: 'insensitive' },
+        } : {}),
+        ...(search.data.area ? {
+          area: { contains: search.data.area, mode: 'insensitive' },
         } : {}),
         ...(search.data.roomType ? { roomType: search.data.roomType } : {}),
         ...(minRent !== undefined || maxRent !== undefined ? {
@@ -318,6 +323,7 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         }
         return created;
       });
+      await syncLegacyRoom(prisma, room);
       res.status(201).json({ success: true, room: publicRoom(room, viewer.id) });
     } catch (error) {
       next(error);
@@ -422,6 +428,7 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
           resourceType: asset.resourceType === 'video' ? 'video' as const : 'image' as const,
         })));
       }
+      await syncLegacyRoom(prisma, room);
       res.json({ success: true, room: publicRoom(room, viewer.id) });
     } catch (error) {
       next(error);
@@ -453,6 +460,7 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         await transaction.room.delete({ where: { id: roomId } });
         await transaction.mediaUpload.deleteMany({ where: { publicId: { in: room.media.map((asset) => asset.publicId) } } });
       });
+      await deleteLegacyRoom(prisma, roomId);
       res.json({ success: true });
     } catch (error) {
       next(error);

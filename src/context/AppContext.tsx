@@ -159,6 +159,19 @@ export const AppProvider = ({
     toastTimers.current.clear();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    const sendHeartbeat = () => {
+      if (active) void api.heartbeat().catch((error) => console.error('Presence heartbeat failed:', error));
+    };
+    sendHeartbeat();
+    const interval = window.setInterval(sendHeartbeat, 45_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
   const refreshUserData = useCallback(async (): Promise<void> => {
     if (userSyncRequest.current) return userSyncRequest.current;
     const request = (async () => {

@@ -260,47 +260,6 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
               <h1 className="text-xl font-normal tracking-normal text-white">{user.username}</h1>
               {user.isVerified && <ShieldCheck className="h-5 w-5 text-sky-400" aria-label="Verified" />}
             </div>
-            <div className="flex w-full gap-2 sm:w-auto">
-              {isOwnProfile ? (
-                <>
-                  <button
-                    onClick={() => setIsEditing(true)}
-                    className="flex-1 rounded-lg bg-zinc-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 sm:flex-none"
-                  >
-                    Edit profile
-                  </button>
-                  <button
-                    onClick={() => openCreateModal('post')}
-                    className="flex-1 rounded-lg bg-zinc-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 sm:flex-none"
-                  >
-                    Share a room
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => void toggleFollow()}
-                    className={`flex-1 rounded-lg px-4 py-1.5 text-xs font-semibold sm:flex-none ${
-                      isFollowing ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-sky-600 text-white hover:bg-sky-500'
-                    }`}
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      {isFollowing ? <UserCheck className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
-                      {isFollowing ? 'Following' : 'Follow'}
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => void openChatWith(user.id)}
-                    className="flex-1 rounded-lg bg-zinc-800 px-4 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700 sm:flex-none"
-                  >
-                    <span className="inline-flex items-center gap-1.5">
-                      <Send className="h-3.5 w-3.5" />
-                      Message
-                    </span>
-                  </button>
-                </>
-              )}
-            </div>
           </div>
 
           <div className="mt-5 flex justify-center gap-8 text-xs sm:justify-start sm:gap-10">
@@ -331,8 +290,51 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
               </p>
             )}
           </div>
+
         </div>
       </header>
+
+      <div className="mx-auto mt-5 flex w-full max-w-2xl gap-2">
+        {isOwnProfile ? (
+          <>
+            <button
+              onClick={() => setIsEditing(true)}
+              className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-700"
+            >
+              Edit profile
+            </button>
+            <button
+              onClick={() => openCreateModal('post')}
+              className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-700"
+            >
+              Share a room
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => void toggleFollow()}
+              className={`flex-1 rounded-lg px-4 py-2.5 text-xs font-semibold transition ${
+                isFollowing ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-sky-600 text-white hover:bg-sky-500'
+              }`}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                {isFollowing ? <UserCheck className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
+                {isFollowing ? 'Following' : 'Follow'}
+              </span>
+            </button>
+            <button
+              onClick={() => void openChatWith(user.id)}
+              className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-700"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Send className="h-3.5 w-3.5" />
+                Message
+              </span>
+            </button>
+          </>
+        )}
+      </div>
 
       <div role="tablist" aria-label="Profile content" className="mb-5 flex justify-center border-b border-zinc-800/80">
         <button

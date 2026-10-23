@@ -292,7 +292,7 @@ export interface VisitRequest {
 export interface Report {
   id: string;
   reporterId: string;
-  targetType: 'PROPERTY' | 'USER' | 'LISTING' | 'REEL';
+  targetType: 'POST' | 'ROOM' | 'USER' | 'REEL';
   targetId: string;
   reason: string;
   details?: string;

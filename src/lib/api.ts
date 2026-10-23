@@ -66,6 +66,17 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  heartbeat: () => fetchJson<{ success: boolean }>('/presence/heartbeat', { method: 'POST' }),
+  discoverUsers: (query?: string) => fetchJson<{
+    users: Array<User & {
+      isOnline: boolean;
+      isFollowing: boolean;
+      lastSeenAt: string | null;
+      roommateProfile: { budgetMin: number | null; budgetMax: number | null; moveInAt: string | null; preferences: { lifestyle?: string[] } | null } | null;
+    }>;
+    onlineCount: number;
+    presenceTimeoutSeconds: number;
+  }>(`/users/discover${query ? `?q=${encodeURIComponent(query)}` : ''}`),
   syncCurrentUser: () => fetchJson<{ user: User }>('/auth/profile', { method: 'POST' }),
   switchRole: (role: UserRole) =>
     fetchJson<{ success: boolean; user: User }>('/auth/switch-role', {
@@ -559,7 +570,7 @@ export const api = {
     }>(`/search?q=${encodeURIComponent(query)}&tab=${tab}`),
 
   // Anti-fraud & Reports
-  createReport: (data: { targetType: 'PROPERTY' | 'USER' | 'LISTING' | 'REEL'; targetId: string; reason: string; details?: string }) =>
+  createReport: (data: { targetType: 'POST' | 'ROOM' | 'USER' | 'REEL'; targetId: string; reason: string; details?: string }) =>
     fetchJson<{ success: boolean; report: Report }>('/reports', {
       method: 'POST',
       body: JSON.stringify(data),

@@ -6,6 +6,7 @@ import pino from 'pino';
 import { prisma } from './prisma.js';
 import { isAllowedOrigin } from './config/cors.js';
 import { env } from './config/env.js';
+import { syncLegacyMessageStatus } from './legacy-sync.js';
 
 const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
@@ -213,6 +214,7 @@ export function createSocketServer(httpServer: HttpServer): Server {
           data: { deliveredAt },
         });
         if (result.count > 0) {
+          await syncLegacyMessageStatus(prisma, { id: message.id, isRead: false });
           io.to(`user:${message.senderId}`).emit('message:delivered', {
             messageId: message.id,
             deliveredAt: deliveredAt.toISOString(),
@@ -249,6 +251,7 @@ export function createSocketServer(httpServer: HttpServer): Server {
           data: { isRead: true },
         });
         if (result.count > 0) {
+          await syncLegacyMessageStatus(prisma, { id: message.id, isRead: true });
           io.to(`user:${message.senderId}`).emit('message:read', { messageId: message.id });
         }
         acknowledge?.({ success: true });

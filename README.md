@@ -54,6 +54,16 @@ Start the API and Socket.IO server in one terminal:
 npm run server
 ```
 
+To start the API and Vite client together during development, use:
+
+```bash
+npm run dev:all
+```
+
+`npm run dev` starts the same combined API and Vite development environment. Do not start only
+the Vite server when using authenticated pages such as Reels, because `/api` requests require
+the API server and otherwise appear as proxy 502 errors.
+
 Start the Vite app in a second terminal:
 
 ```bash
@@ -61,6 +71,8 @@ npm run dev
 ```
 
 Set `CLIENT_URL` to the exact browser origin (for local Vite, `http://localhost:5173`). CORS permits that origin only. The development proxy forwards API, media, and Socket.IO traffic to the server on `PORT` (default `4000`). Sign in with Clerk to create a real profile, publish photo posts or video reels, follow/unfollow users, and message other users in real time.
+
+Authenticated users send a presence heartbeat every 45 seconds. A user is shown as online for the configured `PRESENCE_TIMEOUT_SECONDS` window (default `120`) after their last heartbeat. Set this server-side variable to adjust the inactivity timeout.
 
 Room photos and videos are validated by the API and uploaded to Cloudinary with short-lived signed parameters. The server reserves each generated `publicId` in `MediaUpload`, verifies the uploaded Cloudinary asset before attaching it to a post, reel, or room, and stores its secure URL and `publicId` in PostgreSQL. Content deletion removes its Cloudinary asset; expired unattached reservations are cleaned up on a later upload.
 

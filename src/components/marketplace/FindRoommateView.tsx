@@ -1,5 +1,5 @@
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bookmark,
   Heart,
@@ -9,7 +9,7 @@ import {
   Users,
 } from 'lucide-react';
 
-import type { Comment, Post } from '../../types/client.ts';
+import type { Comment, Post, RentalRoom } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 
@@ -380,15 +380,19 @@ export const FindRoommateView: React.FC<{
     openUserProfile,
     showToast,
     realtimeSocket,
+    setActiveView,
+    setViewParams,
   } = useApp();
 
   const [posts, setPosts] = useState<Post[]>([]);
+  const [rooms, setRooms] = useState<RentalRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [busyUsers, setBusyUsers] = useState<string[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [category, setCategory] = useState<'all' | 'rooms' | 'roommates' | 'recent'>('all');
 
   const loadMoreMarker = useRef<HTMLDivElement>(null);
 
@@ -412,6 +416,16 @@ export const FindRoommateView: React.FC<{
       setLoading(false);
     }
   }, []);
+
+  const loadRooms = useCallback(async () => {
+    if (mode !== 'feed') return;
+    try {
+      const result = await api.getRooms();
+      setRooms(result.rooms);
+    } catch (cause) {
+      console.error('Failed to load room listings:', cause);
+    }
+  }, [mode]);
 
   const loadMorePosts = useCallback(async () => {
     if (!nextCursor || isLoadingMore) return;
@@ -449,7 +463,8 @@ export const FindRoommateView: React.FC<{
 
   useEffect(() => {
     void loadPosts();
-  }, [loadPosts]);
+    void loadRooms();
+  }, [loadPosts, loadRooms]);
 
   useEffect(() => {
     const marker = loadMoreMarker.current;
@@ -475,6 +490,7 @@ export const FindRoommateView: React.FC<{
 
     const handlePostChanged = () => {
       void loadPosts();
+      void loadRooms();
     };
 
     realtimeSocket.on('post:changed', handlePostChanged);
@@ -482,18 +498,30 @@ export const FindRoommateView: React.FC<{
     return () => {
       realtimeSocket.off('post:changed', handlePostChanged);
     };
-  }, [loadPosts, realtimeSocket]);
+  }, [loadPosts, loadRooms, realtimeSocket]);
 
   const query = search.trim().toLowerCase();
 
-  const filteredPosts = posts.filter((post) => {
+  const filteredPosts = useMemo(() => posts.filter((post) => {
     return (
       !query ||
       post.caption.toLowerCase().includes(query) ||
       post.location.toLowerCase().includes(query) ||
-      post.owner?.name.toLowerCase().includes(query)
-    );
-  });
+      post.owner?.name.toLowerCase().includes(query) ||
+      post.owner?.username.toLowerCase().includes(query)
+    ) && (category === 'all' ||
+      (category === 'rooms' && post.rentAmount != null) ||
+      (category === 'roommates' && post.rentAmount == null) ||
+      category === 'recent');
+  }), [category, posts, query]);
+
+  const displayedPosts = category === 'recent'
+    ? [...filteredPosts].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    : filteredPosts;
+  const displayedRooms = mode === 'feed' && category !== 'roommates'
+    ? [...rooms].sort((first, second) => second.createdAt.localeCompare(first.createdAt))
+    : [];
+  const hasFeedItems = displayedPosts.length > 0 || displayedRooms.length > 0;
 
   const toggleFollow = async (post: Post) => {
     if (
@@ -543,42 +571,46 @@ export const FindRoommateView: React.FC<{
   };
 
   return (
-    <section className="mx-auto max-w-4xl px-4 py-6 pb-24 sm:px-8">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <section className="mx-auto w-full max-w-6xl px-4 py-5 pb-24 sm:px-6 lg:px-8">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-rose-400" />
-
-            <h1 className="text-2xl font-bold text-white">
-              {mode === 'feed' ? 'Room feed' : 'Find a roommate'}
+            <span className="h-2.5 w-2.5 rounded-full bg-gradient-to-r from-rose-500 to-amber-400" />
+            <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl">
+              {mode === 'feed' ? 'Discover Rooms & Roommates' : 'Find a roommate'}
             </h1>
           </div>
-
-          <p className="mt-1 text-xs text-zinc-400">
+          <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
             {mode === 'feed'
-              ? 'Rooms and roommate posts shared by the community.'
+              ? 'Find your next space and connect with your community.'
               : 'Browse real room posts from people in the community.'}
           </p>
         </div>
 
-        {/* Search bar: white icon and white focus border */}
-        <label className="flex items-center gap-2 rounded-xl border border-white/70 bg-zinc-900 px-3 transition-colors focus-within:border-white">
-          <Search className="h-4 w-4 shrink-0 text-white" />
-
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="min-h-10 w-full bg-transparent text-xs text-white outline-none placeholder:text-zinc-400 sm:w-64"
-            placeholder="Search by person, room or area"
-            aria-label="Search room posts"
-          />
-        </label>
+        {mode !== 'feed' && (
+          <label className="flex items-center gap-2 rounded-xl border border-white bg-zinc-900 px-3 transition-all focus-within:ring-2 focus-within:ring-white/20">
+            <Search className="h-4 w-4 shrink-0 text-white" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} className="min-h-10 w-full bg-transparent text-xs text-white outline-none placeholder:text-zinc-400 sm:w-64" placeholder="Search room posts" aria-label="Search room posts" />
+          </label>
+        )}
       </div>
+      {mode === 'feed' && (
+        <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+          {([
+            ['all', 'All posts'],
+            ['rooms', 'Rooms'],
+            ['roommates', 'Roommates'],
+            ['recent', 'Recently added'],
+          ] as const).map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setCategory(value)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors ${category === value ? 'border-white bg-white text-zinc-950' : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-500 hover:text-white'}`}>{label}</button>
+          ))}
+        </div>
+      )}
 
       {loading && (
-        <p className="py-16 text-center text-xs text-zinc-400">
-          Loading room posts...
-        </p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/70"><div className="aspect-[4/3] animate-pulse bg-zinc-800" /><div className="space-y-3 p-3"><div className="h-3 w-2/3 animate-pulse rounded bg-zinc-800" /><div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800" /></div></div>)}
+        </div>
       )}
 
       {!loading && error && (
@@ -601,12 +633,12 @@ export const FindRoommateView: React.FC<{
         </div>
       )}
 
-      {!loading && !error && filteredPosts.length === 0 && (
+      {!loading && !error && !hasFeedItems && (
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 px-5 py-16 text-center">
           <Users className="mx-auto h-8 w-8 text-zinc-500" />
 
           <h2 className="mt-4 text-sm font-semibold text-zinc-200">
-            {posts.length ? 'No matching rooms' : 'No room posts yet'}
+            {posts.length ? 'No matching posts' : 'No room posts yet'}
           </h2>
 
           <p className="mt-1 text-xs text-zinc-500">
@@ -617,21 +649,41 @@ export const FindRoommateView: React.FC<{
         </div>
       )}
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        {filteredPosts.map((post) => {
+      <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {displayedRooms.map((room) => (
+          <article key={`room-${room.id}`} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/80 transition-all hover:-translate-y-0.5 hover:border-zinc-600 hover:bg-zinc-900">
+            <button type="button" onClick={() => { setViewParams({ roomId: room.id }); setActiveView('rooms'); }} className="relative aspect-[4/3] bg-zinc-950 text-left">
+              {room.photos[0] ? <img src={room.photos[0]} alt={room.title} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-xs text-zinc-600">No room photo</div>}
+              <span className="absolute bottom-2 left-2 rounded-full bg-zinc-950/85 px-2 py-1 text-[10px] font-bold text-emerald-300">₹{room.rent.toLocaleString('en-IN')}/mo</span>
+            </button>
+            <div className="flex flex-1 flex-col gap-2 p-3">
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => openUserProfile(room.owner.username)} className="min-w-0 truncate text-left text-xs font-semibold text-white hover:text-rose-300">{room.owner.name}</button>
+                <span className="ml-auto text-[10px] text-zinc-500">@{room.owner.username}</span>
+              </div>
+              <button type="button" onClick={() => { setViewParams({ roomId: room.id }); setActiveView('rooms'); }} className="line-clamp-1 text-left text-sm font-bold text-white hover:text-rose-300">{room.title}</button>
+              <p className="flex items-center gap-1 truncate text-[10px] text-zinc-400"><MapPin className="h-3 w-3 text-rose-400" />{room.area}, {room.city}</p>
+              <div className="mt-auto flex items-center gap-2 pt-1">
+                <span className="rounded-full bg-zinc-800 px-2 py-1 text-[10px] text-zinc-300">{room.roomType}</span>
+                <button type="button" onClick={() => void openChatWith(room.ownerId, { type: 'ROOM', id: room.id, title: room.title })} className="ml-auto rounded-lg bg-zinc-800 px-2.5 py-1.5 text-[10px] font-semibold text-white hover:bg-zinc-700"><MessageCircle className="mr-1 inline h-3 w-3" />Message</button>
+              </div>
+            </div>
+          </article>
+        ))}
+        {displayedPosts.map((post) => {
           const owner = post.owner;
 
           return (
             <article
               key={post.id}
-              className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/80"
+              className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/80 transition-all hover:-translate-y-0.5 hover:border-zinc-600 hover:bg-zinc-900"
             >
               <div className="flex items-center justify-between gap-3 p-3">
                 <button
                   onClick={() =>
                     owner && openUserProfile(owner.username)
                   }
-                  className="flex min-w-0 items-center gap-2.5 text-left"
+                  className="flex min-w-0 items-center gap-2.5 p-0.5 text-left"
                   disabled={!owner}
                 >
                   {owner?.avatar ? (
@@ -640,10 +692,10 @@ export const FindRoommateView: React.FC<{
                       alt={owner.name || 'User profile'}
                       loading="lazy"
                       decoding="async"
-                      className="h-10 w-10 rounded-full object-cover"
+                      className="h-8 w-8 rounded-full object-cover"
                     />
                   ) : (
-                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-700 text-xs font-bold text-white">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-700 text-xs font-bold text-white">
                       {owner?.name.slice(0, 1).toUpperCase() || '?'}
                     </span>
                   )}
@@ -663,7 +715,7 @@ export const FindRoommateView: React.FC<{
                   <button
                     onClick={() => void toggleFollow(post)}
                     disabled={busyUsers.includes(owner.id)}
-                    className={`rounded-lg px-3 py-1.5 text-[10px] font-semibold disabled:opacity-50 ${
+                    className={`rounded-lg px-2.5 py-1.5 text-[10px] font-semibold disabled:opacity-50 ${
                       post.isFollowingOwner
                         ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
                         : 'bg-sky-600 text-white hover:bg-sky-500'
@@ -674,7 +726,7 @@ export const FindRoommateView: React.FC<{
                 )}
               </div>
 
-              <div className="relative aspect-square bg-zinc-950">
+              <div className="relative aspect-[4/3] max-h-[320px] bg-zinc-950">
                 {post.images?.[0] && (
                   <img
                     src={post.images[0]}
@@ -686,10 +738,10 @@ export const FindRoommateView: React.FC<{
                 )}
               </div>
 
-              <div className="space-y-2 p-4">
+              <div className="flex flex-1 flex-col space-y-2 p-3">
                 <div className="flex items-center justify-between gap-2">
                   {post.location && (
-                    <p className="flex items-center gap-1 text-[10px] text-zinc-400">
+                    <p className="flex min-w-0 items-center gap-1 truncate text-[10px] text-zinc-400">
                       <MapPin className="h-3 w-3 text-rose-400" />
                       {post.location}
                     </p>
@@ -703,21 +755,23 @@ export const FindRoommateView: React.FC<{
                 </div>
 
                 {post.caption && (
-                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-200">
+                  <p className="line-clamp-2 whitespace-pre-wrap text-xs leading-relaxed text-zinc-200">
                     {post.caption}
                   </p>
                 )}
 
-                <PostInteractions
-                  post={post}
-                  realtimeSocket={realtimeSocket}
-                  showToast={showToast}
-                />
+                <div className="mt-auto pt-1">
+                  <PostInteractions
+                    post={post}
+                    realtimeSocket={realtimeSocket}
+                    showToast={showToast}
+                  />
+                </div>
 
                 {owner && owner.id !== currentUser?.id && (
                   <button
                     onClick={() => void openChatWith(owner.id)}
-                    className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 py-2 text-xs font-semibold text-white hover:bg-zinc-700"
+                    className="mt-1 flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-800 py-1.5 text-xs font-semibold text-white hover:bg-zinc-700"
                   >
                     <MessageCircle className="h-3.5 w-3.5" />
                     Message

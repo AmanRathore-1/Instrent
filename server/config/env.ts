@@ -4,6 +4,7 @@ import { z } from 'zod';
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
+  PRESENCE_TIMEOUT_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
   DATABASE_URL: z.string().url(),
   DIRECT_URL: z.string().url(),
   CLIENT_URL: z.string().url(),

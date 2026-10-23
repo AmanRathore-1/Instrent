@@ -12,10 +12,10 @@ export const Header: React.FC<{
     <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-zinc-800/80 bg-zinc-950/80 px-4 py-3 backdrop-blur-xl lg:px-8">
       <button
         onClick={onOpenSearch}
-        className="group flex min-w-0 max-w-md flex-1 items-center gap-3 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-2 text-left text-sm text-zinc-400 shadow-inner transition-colors hover:bg-zinc-800/80"
+        className="group flex min-w-0 max-w-md flex-1 items-center gap-3 rounded-full border border-white bg-zinc-900 px-4 py-2 text-left text-sm text-zinc-300 shadow-inner transition-all hover:bg-zinc-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
       >
-        <Search className="h-4 w-4 shrink-0 text-zinc-500 transition-colors group-hover:text-rose-400" />
-        <span className="truncate">Find roommates and rooms...</span>
+        <Search className="h-4 w-4 shrink-0 text-white" />
+        <span className="truncate text-zinc-400">Find roommates and rooms...</span>
       </button>
       <div className="flex items-center gap-2">
         <button

@@ -35,10 +35,13 @@ export const roommateProfileSchema = z.object({
 { message: 'Minimum budget cannot be greater than maximum budget.' });
 
 export const roomSearchSchema = z.object({
+  q: z.string().trim().max(160).optional(),
   city: z.string().trim().max(120).optional(),
+  area: z.string().trim().max(160).optional(),
   minRent: z.coerce.number().int().nonnegative().optional(),
   maxRent: z.coerce.number().int().nonnegative().optional(),
   roomType: z.string().trim().max(40).optional(),
+  status: roomStatus.optional(),
   amenities: z.string().max(1000).optional(),
   sort: z.enum(['newest', 'rent-asc', 'rent-desc']).default('newest'),
   availableBefore: z.coerce.date().optional(),

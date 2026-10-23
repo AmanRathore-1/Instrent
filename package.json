@@ -5,7 +5,9 @@
   "type": "module",
   
 "scripts": {
-  "dev": "vite",
+  "dev": "npm run dev:all",
+  "dev:server": "tsx watch server/index.ts",
+  "dev:all": "concurrently -k -n api,web \"npm run dev:server\" \"vite\"",
   "server": "tsx watch server/index.ts",
   "start": "node dist-server/index.js",
   "start:server": "tsx server/index.ts",
@@ -57,6 +59,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^9.2.1",
     "oxlint": "^1.81.0",
     "prisma": "^6.19.3",
     "tsx": "^4.23.15",

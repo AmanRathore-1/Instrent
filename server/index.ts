@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import cors from 'cors';
 import express from 'express';
@@ -27,11 +28,13 @@ import {
 } from './cloudinary.js';
 import { persistThenPublish } from './modules/social/service.js';
 import { createRoomRouter } from './modules/rooms/routes.js';
+import { syncLegacyMessage, syncLegacyMessageStatus, syncLegacyNotification, syncLegacyNotificationStatus } from './legacy-sync.js';
 
 const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 const port = env.PORT;
-const uploadDirectory = path.resolve('server', 'uploads');
-const clientDirectory = path.resolve('dist');
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const uploadDirectory = path.join(projectRoot, 'server', 'uploads');
+const clientDirectory = path.join(projectRoot, 'dist');
 const app = express();
 const httpServer = createServer(app);
 const io: SocketServer = createSocketServer(httpServer);
@@ -56,6 +59,18 @@ const clerkWebhookSchema = z.object({
     })).optional(),
   }),
 });
+const switchRoleSchema = z.object({
+  role: z.enum(['TENANT', 'OWNER', 'PG_HOSTEL', 'BROKER']),
+}).strict();
+const reportSchema = z.object({
+  targetType: z.enum(['POST', 'ROOM', 'USER', 'REEL']),
+  targetId: z.string().uuid(),
+  reason: z.string().trim().min(1).max(120),
+  details: z.string().trim().max(2200).optional(),
+}).strict();
+const reportStatusSchema = z.object({
+  status: z.enum(['RESOLVED', 'DISMISSED']),
+}).strict();
 
 const paginationCursorSchema = z.string().max(256).optional();
 const decodeCursor = (cursor: unknown) => {
@@ -202,6 +217,89 @@ const requireUser: RequestHandler = (req, res, next) => {
   next();
 };
 
+const requireAdmin: RequestHandler = async (req, res, next) => {
+  try {
+    const clerkUserId = getAuth(req).userId;
+    if (!clerkUserId) {
+      res.status(401).json({ error: 'Sign in to continue.' });
+      return;
+    }
+    const user = await prisma.user.findUnique({
+      where: { clerkId: clerkUserId },
+      select: { activeRole: true },
+    });
+    if (user?.activeRole !== 'ADMIN') {
+      res.status(403).json({ error: 'Administrator access is required.' });
+      return;
+    }
+    res.locals.clerkUserId = clerkUserId;
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
+app.post('/api/presence/heartbeat', requireUser, async (_req, res, next) => {
+  try {
+    await prisma.user.update({
+      where: { clerkId: res.locals.clerkUserId as string },
+      data: { lastSeenAt: new Date() },
+    });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/users/discover', requireUser, async (req, res, next) => {
+  try {
+    const viewer = await prisma.user.findUnique({
+      where: { clerkId: res.locals.clerkUserId as string },
+      select: { id: true },
+    });
+    if (!viewer) {
+      res.status(404).json({ error: 'Profile not found.' });
+      return;
+    }
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 120) : '';
+    const pageSize = Math.min(Math.max(Number(req.query.take) || 50, 1), 100);
+    const cutoff = new Date(Date.now() - env.PRESENCE_TIMEOUT_SECONDS * 1000);
+    const users = await prisma.user.findMany({
+      where: {
+        id: { not: viewer.id },
+        ...(query ? {
+          OR: [
+            { name: { contains: query, mode: 'insensitive' } },
+            { username: { contains: query, mode: 'insensitive' } },
+            { city: { contains: query, mode: 'insensitive' } },
+            { locationArea: { contains: query, mode: 'insensitive' } },
+          ],
+        } : {}),
+      },
+      select: {
+        id: true, username: true, name: true, avatar: true, bio: true, city: true,
+        locationArea: true, occupation: true, instituteOrCompany: true,
+        lastSeenAt: true, roommateProfile: { select: { budgetMin: true, budgetMax: true, moveInAt: true, preferences: true } },
+        followers: { where: { followerId: viewer.id }, select: { id: true } },
+      },
+      orderBy: [{ lastSeenAt: 'desc' }, { name: 'asc' }],
+      take: pageSize,
+    });
+    res.json({
+      users: users.map((user) => ({
+        ...user,
+        isOnline: user.lastSeenAt !== null && user.lastSeenAt >= cutoff,
+        isFollowing: user.followers.length > 0,
+        followers: undefined,
+      })),
+      onlineCount: users.filter((user) => user.lastSeenAt !== null && user.lastSeenAt >= cutoff).length,
+      presenceTimeoutSeconds: env.PRESENCE_TIMEOUT_SECONDS,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/health', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -281,6 +379,7 @@ app.patch('/api/notifications/:notificationId/read', requireUser, async (req, re
       res.status(404).json({ error: 'Notification not found.' });
       return;
     }
+    await syncLegacyNotificationStatus(prisma, notificationId, true);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -299,7 +398,119 @@ app.post('/api/notifications/mark-all-read', requireUser, async (req, res, next)
       where: { userId: user.id, isRead: false },
       data: { isRead: true },
     });
+    await prisma.$executeRaw`
+      UPDATE "public"."Notification"
+      SET "isRead" = true
+      WHERE "userId" = (SELECT "id" FROM "public"."UserProfile" WHERE "clerkUserId" = ${res.locals.clerkUserId as string})
+    `;
     res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/reports', requireUser, async (req, res, next) => {
+  try {
+    const user = await findSignedInUser(req, res);
+    const parsed = reportSchema.safeParse(req.body);
+    if (!user) {
+      res.status(404).json({ error: 'Profile not found.' });
+      return;
+    }
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Provide a valid report target and reason.' });
+      return;
+    }
+    if (parsed.data.targetType === 'USER' && parsed.data.targetId === user.id) {
+      res.status(400).json({ error: 'You cannot report your own profile.' });
+      return;
+    }
+    const report = await prisma.report.create({ data: { ...parsed.data, reporterId: user.id } });
+    res.status(201).json({ success: true, report });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/admin/reports', requireAdmin, async (_req, res, next) => {
+  try {
+    const reports = await prisma.report.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: { reporter: { select: { id: true, username: true, name: true, avatar: true } } },
+    });
+    res.json({ reports });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/admin/reports/:reportId', requireAdmin, async (req, res, next) => {
+  try {
+    const reportId = routeParam(req.params.reportId);
+    const parsed = reportStatusSchema.safeParse(req.body);
+    if (!reportId || !parsed.success) {
+      res.status(400).json({ error: 'Invalid report status.' });
+      return;
+    }
+    const report = await prisma.report.update({
+      where: { id: reportId },
+      data: { status: parsed.data.status },
+      include: { reporter: { select: { id: true, username: true, name: true, avatar: true } } },
+    });
+    res.json({ success: true, report });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      res.status(404).json({ error: 'Report not found.' });
+      return;
+    }
+    next(error);
+  }
+});
+
+app.get('/api/admin/users', requireAdmin, async (_req, res, next) => {
+  try {
+    const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+    res.json({ users: await Promise.all(users.map((user) => serializeUser(user))) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/verify-user/:userId', requireAdmin, async (req, res, next) => {
+  try {
+    const userId = routeParam(req.params.userId);
+    const parsed = z.object({ isVerified: z.boolean() }).strict().safeParse(req.body);
+    if (!userId || !parsed.success) {
+      res.status(400).json({ error: 'Invalid verification request.' });
+      return;
+    }
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { isVerified: parsed.data.isVerified },
+    });
+    res.json({ success: true, user: await serializeUser(user) });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+    next(error);
+  }
+});
+
+app.get('/api/admin/metrics', requireAdmin, async (_req, res, next) => {
+  try {
+    const [users, posts, reels, rooms, activeRooms, inquiries, pendingReports] = await Promise.all([
+      prisma.user.count(),
+      prisma.post.count(),
+      prisma.reel.count(),
+      prisma.room.count(),
+      prisma.room.count({ where: { status: 'AVAILABLE' } }),
+      prisma.roomInquiry.count(),
+      prisma.report.count({ where: { status: 'PENDING' } }),
+    ]);
+    res.json({ users, posts, reels, rooms, activeRooms, totalInquiries: inquiries, pendingReports });
   } catch (error) {
     next(error);
   }
@@ -310,6 +521,9 @@ const serializeUser = async (user: DbUser, currentUserId?: string) => {
     prisma.follow.count({ where: { followedId: user.id } }),
     prisma.follow.count({ where: { followerId: user.id } }),
   ]);
+  const activeRole = ['TENANT', 'OWNER', 'PG_HOSTEL', 'BROKER', 'ADMIN'].includes(user.activeRole)
+    ? user.activeRole as 'TENANT' | 'OWNER' | 'PG_HOSTEL' | 'BROKER' | 'ADMIN'
+    : 'TENANT';
   return {
     id: user.id,
     username: user.username,
@@ -317,8 +531,8 @@ const serializeUser = async (user: DbUser, currentUserId?: string) => {
     email: user.id === currentUserId ? user.email : '',
     avatar: user.avatar,
     bio: user.bio,
-    roles: ['TENANT'],
-    activeRole: user.activeRole,
+    roles: [activeRole],
+    activeRole,
     isVerified: user.isVerified,
     city: user.city,
     locationArea: user.locationArea,
@@ -334,6 +548,56 @@ const findSignedInUser = async (req: Request, res: Response) => {
   const clerkUserId = res.locals.clerkUserId as string | undefined;
   if (!clerkUserId) return null;
   return prisma.user.findUnique({ where: { clerkId: clerkUserId } });
+};
+
+const syncLegacyUserProfile = async (user: DbUser) => {
+  const [followersCount, followingCount] = await Promise.all([
+    prisma.follow.count({ where: { followedId: user.id } }),
+    prisma.follow.count({ where: { followerId: user.id } }),
+  ]);
+  await prisma.$executeRaw`
+    INSERT INTO "public"."UserProfile"
+      ("id", "clerkUserId", "username", "email", "name", "avatar", "bio",
+       "roles", "activeRole", "city", "locationArea", "authProvider",
+       "providerSubject", "isVerified", "followersCount", "followingCount",
+       "createdAt", "updatedAt")
+    VALUES
+      (${user.id}, ${user.clerkId}, ${user.username}, ${user.email}, ${user.name},
+       ${user.avatar}, ${user.bio}, ARRAY[${user.activeRole}]::text[], ${user.activeRole},
+       ${user.city}, ${user.locationArea}, 'CLERK', ${user.clerkId}, ${user.isVerified},
+       ${followersCount}, ${followingCount}, ${user.createdAt}, ${user.updatedAt})
+    ON CONFLICT ("clerkUserId") DO UPDATE SET
+      "username" = EXCLUDED."username",
+      "email" = EXCLUDED."email",
+      "name" = EXCLUDED."name",
+      "avatar" = EXCLUDED."avatar",
+      "bio" = EXCLUDED."bio",
+      "roles" = EXCLUDED."roles",
+      "activeRole" = EXCLUDED."activeRole",
+      "city" = EXCLUDED."city",
+      "locationArea" = EXCLUDED."locationArea",
+      "providerSubject" = EXCLUDED."providerSubject",
+      "isVerified" = EXCLUDED."isVerified",
+      "followersCount" = EXCLUDED."followersCount",
+      "followingCount" = EXCLUDED."followingCount",
+      "updatedAt" = EXCLUDED."updatedAt"
+  `;
+};
+
+const syncLegacyUserCounts = async (userId: string) => {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { clerkId: true } });
+  if (!user) return;
+  const [followersCount, followingCount] = await Promise.all([
+    prisma.follow.count({ where: { followedId: userId } }),
+    prisma.follow.count({ where: { followerId: userId } }),
+  ]);
+  await prisma.$executeRaw`
+    UPDATE "public"."UserProfile"
+    SET "followersCount" = ${followersCount},
+        "followingCount" = ${followingCount},
+        "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "clerkUserId" = ${user.clerkId}
+  `;
 };
 
 const serializePost = async (post: {
@@ -422,7 +686,32 @@ app.post('/api/auth/profile', requireUser, async (req, res, next) => {
       },
       update: { name, email, avatar: clerkUser.imageUrl },
     });
+    await syncLegacyUserProfile(user);
+
     res.json({ user: await serializeUser(user, user.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/switch-role', requireUser, async (req, res, next) => {
+  try {
+    const parsed = switchRoleSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Choose a valid account role.' });
+      return;
+    }
+    const clerkUserId = res.locals.clerkUserId as string;
+    const user = await prisma.user.findUnique({ where: { clerkId: clerkUserId } });
+    if (!user) {
+      res.status(404).json({ error: 'Create your profile before changing roles.' });
+      return;
+    }
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: { activeRole: parsed.data.role },
+    });
+    res.json({ success: true, user: await serializeUser(updatedUser, updatedUser.id) });
   } catch (error) {
     next(error);
   }
@@ -1639,6 +1928,7 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
     }
     if (body.occupation === null) update.occupation = null;
     const updatedUser = await prisma.user.update({ where: { id: user.id }, data: update });
+    await syncLegacyUserProfile(updatedUser);
     res.json({ user: await serializeUser(updatedUser, user.id) });
   } catch (error) {
     next(error);
@@ -1675,7 +1965,7 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
         where: { followerId_followedId: { followerId: user.id, followedId: targetId } },
         select: { id: true },
       });
-      await prisma.notification.create({
+      const notification = await prisma.notification.create({
         data: {
           userId: targetId,
           type: 'NEW_FOLLOWER',
@@ -1685,9 +1975,11 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
           dedupeKey: `follow:${follow.id}`,
         },
       });
+      await syncLegacyNotification(prisma, notification);
       io.to(`user:${targetId}`).emit('notification:new');
     }
     const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
+    await Promise.all([syncLegacyUserCounts(user.id), syncLegacyUserCounts(targetId)]);
     io.to(`user:${targetId}`).emit('profile:followers-changed', { followersCount });
     res.json({ success: true, isFollowing: true, followersCount });
   } catch (error) {
@@ -1714,6 +2006,7 @@ app.delete('/api/users/:targetId/follow', requireUser, async (req, res, next) =>
     }
     await prisma.follow.deleteMany({ where: { followerId: user.id, followedId: targetId } });
     const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
+    await Promise.all([syncLegacyUserCounts(user.id), syncLegacyUserCounts(targetId)]);
     io.to(`user:${targetId}`).emit('profile:followers-changed', { followersCount });
     res.json({ success: true, isFollowing: false, followersCount });
   } catch (error) {
@@ -1863,6 +2156,9 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
       },
       data: { isRead: true },
     });
+    for (const message of unreadMessages) {
+      await syncLegacyMessageStatus(prisma, { id: message.id, isRead: true });
+    }
     if (readResult.count > 0) {
       io.to(`user:${user.id}`).emit('conversation:read', {
         conversationId: membership.conversation.id,
@@ -2037,6 +2333,11 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
         io.to(`user:${receiverId}`).emit('conversation:changed', { conversationId });
       },
     );
+    const notification = await prisma.notification.findUnique({
+      where: { dedupeKey: `message:${message.id}` },
+    });
+    await syncLegacyMessage(prisma, message);
+    if (notification) await syncLegacyNotification(prisma, notification);
     const serializedMessage = {
       id: message.id,
       conversationId: message.conversationId,
