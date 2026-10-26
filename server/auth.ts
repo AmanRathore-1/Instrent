@@ -36,6 +36,13 @@ export type AuthUser = {
   emailVerifiedAt: Date | null;
 };
 
+export class EmailDeliveryError extends Error {
+  constructor(message = 'Email delivery failed.') {
+    super(message);
+    this.name = 'EmailDeliveryError';
+  }
+}
+
 const hashValue = (value: string) => createHash('sha256').update(value).digest('hex');
 const hashOtp = (userId: string, purpose: AuthPurpose, code: string) =>
   createHmac('sha256', otpSecret).update(`${userId}:${purpose}:${code}`).digest('hex');
@@ -181,24 +188,6 @@ export const issueOtp = async (userId: string, purpose: AuthPurpose) => {
   }
   const code = String(randomInt(100000, 1_000_000));
   const email = emailTemplate(purpose, code);
-  authLogger.info({ userId, purpose, attempted: true }, 'Attempting OTP email delivery');
-  if (!smtpTransporter || !env.SMTP_FROM_EMAIL) {
-    authLogger.error({ userId, purpose }, 'OTP email delivery is not configured');
-    throw new Error('Email delivery is not configured.');
-  }
-  try {
-    const sent = await smtpTransporter.sendMail({ from: env.SMTP_FROM_EMAIL, to: user.email, ...email });
-    authLogger.info({ userId, purpose, smtpMessageId: sent.messageId }, 'OTP email delivery accepted');
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Email delivery failed.') throw error;
-    authLogger.error({
-      userId,
-      purpose,
-      smtpErrorName: error instanceof Error ? error.name : 'UnknownError',
-      smtpErrorMessage: error instanceof Error ? error.message : 'Unknown email delivery error',
-    }, 'OTP email delivery failed');
-    throw new Error('Email delivery failed.');
-  }
   const now = new Date();
   await prisma.$transaction(async (transaction) => {
     await transaction.emailOtp.updateMany({
@@ -215,6 +204,23 @@ export const issueOtp = async (userId: string, purpose: AuthPurpose) => {
       },
     });
   });
+  authLogger.info({ userId, purpose, attempted: true }, 'Attempting OTP email delivery');
+  if (!smtpTransporter || !env.SMTP_FROM_EMAIL) {
+    authLogger.error({ userId, purpose }, 'OTP email delivery is not configured');
+    throw new EmailDeliveryError('Email delivery is not configured.');
+  }
+  try {
+    const sent = await smtpTransporter.sendMail({ from: env.SMTP_FROM_EMAIL, to: user.email, ...email });
+    authLogger.info({ userId, purpose, smtpMessageId: sent.messageId }, 'OTP email delivery accepted');
+  } catch (error) {
+    authLogger.error({
+      userId,
+      purpose,
+      smtpErrorName: error instanceof Error ? error.name : 'UnknownError',
+      smtpErrorMessage: error instanceof Error ? error.message : 'Unknown email delivery error',
+    }, 'OTP email delivery failed');
+    throw new EmailDeliveryError();
+  }
 };
 
 export const consumeOtp = async (userId: string, purpose: AuthPurpose, code: string) => {

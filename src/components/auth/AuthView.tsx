@@ -46,6 +46,12 @@ export function AuthView({ onAuthenticated }: Props) {
         setMessage('An account with this email already exists. Sign in instead.');
         return;
       }
+      if (caught.code === 'EMAIL_DELIVERY_FAILED' && (mode === 'register' || mode === 'login')) {
+        changeMode('verify');
+        setResendSeconds(60);
+        setMessage('Your account was created, but the verification email was not delivered. Try resend verification after the cooldown.');
+        return;
+      }
       setError(caught.message);
       setFieldErrors(caught.fieldErrors);
       if (caught.code === 'EMAIL_NOT_VERIFIED') {

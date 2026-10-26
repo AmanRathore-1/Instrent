@@ -33,6 +33,7 @@ import {
   consumePasswordResetGrant,
   cleanupAuthRecords,
   createPasswordResetGrant,
+  EmailDeliveryError,
   findUserByEmail,
   findAuthUser,
   hashPassword,
@@ -370,8 +371,24 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
       },
       select: { id: true, email: true, name: true, username: true, authVersion: true, emailVerifiedAt: true },
     });
-    await issueOtp(user.id, 'EMAIL_VERIFY');
-    res.status(201).json({ requiresVerification: true, user: publicAuthUser(user) });
+    try {
+      await issueOtp(user.id, 'EMAIL_VERIFY');
+      res.status(201).json({ requiresVerification: true, user: publicAuthUser(user) });
+    } catch (error) {
+      if (error instanceof EmailDeliveryError) {
+        const configured = error.message !== 'Email delivery is not configured.';
+        authError(
+          res,
+          503,
+          configured
+            ? 'Your account was created, but we could not deliver the verification email. Use resend verification to try again.'
+            : 'Your account was created, but email delivery is not configured on the server.',
+          configured ? 'EMAIL_DELIVERY_FAILED' : 'EMAIL_DELIVERY_NOT_CONFIGURED',
+        );
+        return;
+      }
+      throw error;
+    }
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       const target = Array.isArray(error.meta?.target)
@@ -409,7 +426,15 @@ app.post('/api/auth/login', async (req, res, next) => {
       return;
     }
     if (!user.emailVerifiedAt) {
-      await issueOtp(user.id, 'EMAIL_VERIFY');
+      try {
+        await issueOtp(user.id, 'EMAIL_VERIFY');
+      } catch (error) {
+        if (!(error instanceof EmailDeliveryError) && !(error instanceof Error && error.message === 'Please wait before requesting another code.')) throw error;
+        if (error instanceof EmailDeliveryError) {
+          authError(res, 503, 'Verify your email before signing in. We could not deliver a new code.', 'EMAIL_DELIVERY_FAILED');
+          return;
+        }
+      }
       res.status(403).json({ error: 'Verify your email before signing in.', code: 'EMAIL_NOT_VERIFIED', requiresVerification: true });
       return;
     }
@@ -2664,12 +2689,12 @@ app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) 
     res.status(429).json({ error: error.message, code: 'OTP_COOLDOWN' });
     return;
   }
-  if (error instanceof Error && error.message === 'Email delivery failed.') {
+  if (error instanceof EmailDeliveryError) {
+    if (error.message === 'Email delivery is not configured.') {
+      res.status(503).json({ error: 'Email delivery is not configured. Add the SMTP environment variables and try again.', code: 'EMAIL_DELIVERY_NOT_CONFIGURED' });
+      return;
+    }
     res.status(503).json({ error: 'We could not deliver the email. Please try again later.', code: 'EMAIL_DELIVERY_FAILED' });
-    return;
-  }
-  if (error instanceof Error && error.message === 'Email delivery is not configured.') {
-    res.status(503).json({ error: 'Email delivery is not configured. Add the SMTP environment variables and try again.', code: 'EMAIL_DELIVERY_NOT_CONFIGURED' });
     return;
   }
   res.status(500).json({ error: 'Unexpected server error.' });
