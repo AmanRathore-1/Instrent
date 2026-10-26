@@ -196,7 +196,15 @@ const createConversationForRoom = async (
 
 export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: RoomRoutesDependencies) {
   const router = Router();
-  router.use(requireUser);
+  router.use((req, res, next) => {
+    const requiresUser = req.path === '/rooms'
+      || req.path.startsWith('/rooms/')
+      || req.path === '/saved/rooms'
+      || req.path === '/roommate-profile/me'
+      || req.path === '/roommates';
+    if (requiresUser) return requireUser(req, res, next);
+    next();
+  });
 
   router.get('/rooms', async (req, res, next) => {
     try {

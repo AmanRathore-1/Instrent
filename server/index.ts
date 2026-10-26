@@ -50,7 +50,6 @@ const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' })
 const port = env.PORT;
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const uploadDirectory = path.join(projectRoot, 'server', 'uploads');
-const clientDirectory = path.join(projectRoot, 'dist');
 const app = express();
 app.set('trust proxy', 1);
 const httpServer = createServer(app);
@@ -2630,20 +2629,7 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
   }
 });
 
-if (env.NODE_ENV === 'production') {
-  app.use(express.static(clientDirectory, { index: false }));
-  app.use((_req, res, next) => {
-    res.sendFile(path.join(clientDirectory, 'index.html'), (error) => {
-      if (error) next(error);
-    });
-  });
-}
-
 app.get('/', (_req, res) => {
-  if (env.NODE_ENV === 'production') {
-    res.sendFile(path.join(clientDirectory, 'index.html'));
-    return;
-  }
   res.json({ ok: true, service: 'rentreel-api' });
 });
 app.use('/api', (_req, res) => {
