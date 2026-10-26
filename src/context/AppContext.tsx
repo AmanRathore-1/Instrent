@@ -18,7 +18,7 @@ import type {
   MessageContext,
 } from '../types/client';
 
-import { api, getAccessToken } from '../lib/api';
+import { api, API_URL, getAccessToken } from '../lib/api';
 
 interface ToastInfo {
   id: string;
@@ -275,7 +275,7 @@ export const AppProvider = ({
     void import('socket.io-client')
       .then(({ io }) => {
         if (isCancelled) return;
-        const connectedSocket = io({
+        const connectedSocket = io(API_URL || undefined, {
           auth: (callback) => callback({ token: getAccessToken() ?? '' }),
         });
         socket = connectedSocket;

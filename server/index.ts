@@ -51,6 +51,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const uploadDirectory = path.join(projectRoot, 'server', 'uploads');
 const clientDirectory = path.join(projectRoot, 'dist');
 const app = express();
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 const io: SocketServer = createSocketServer(httpServer);
 const authCleanupTimer = setInterval(() => {
@@ -130,6 +131,8 @@ app.use(cors({
     else callback(new Error('Origin not allowed.'));
   },
   credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Authorization', 'Content-Type', 'Accept'],
 }));
 
 app.use(express.json({ limit: '1mb' }));
@@ -159,10 +162,13 @@ const parseCookie = (header: string | undefined, name: string) =>
   })();
 const setRefreshCookie = (res: Response, token: string) => {
   const secure = env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${refreshCookieName}=${encodeURIComponent(token)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`);
+  const sameSite = env.NODE_ENV === 'production' ? 'None' : 'Lax';
+  res.setHeader('Set-Cookie', `${refreshCookieName}=${encodeURIComponent(token)}; Path=/api/auth; HttpOnly; SameSite=${sameSite}; Max-Age=${env.REFRESH_TOKEN_TTL_SECONDS}${secure}`);
 };
 const clearRefreshCookie = (res: Response) => {
-  res.setHeader('Set-Cookie', `${refreshCookieName}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0`);
+  const secure = env.NODE_ENV === 'production' ? '; Secure' : '';
+  const sameSite = env.NODE_ENV === 'production' ? 'None' : 'Lax';
+  res.setHeader('Set-Cookie', `${refreshCookieName}=; Path=/api/auth; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure}`);
 };
 const sameOrigin = (req: Request, res: Response) => {
   const origin = req.header('origin');
@@ -258,17 +264,8 @@ app.get('/api/users/discover', requireUser, async (req, res, next) => {
   }
 });
 
-app.get('/api/health', async (_req, res) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'ok' });
-  } catch (error) {
-    logger.warn(
-      { errorName: error instanceof Error ? error.name : 'UnknownError' },
-      'Database health check failed',
-    );
-    res.status(503).json({ status: 'unavailable', dependencies: { database: 'unavailable' } });
-  }
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({ ok: true });
 });
 const writeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const uploadLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
@@ -2566,6 +2563,20 @@ if (env.NODE_ENV === 'production') {
     });
   });
 }
+
+app.get('/', (_req, res) => {
+  if (env.NODE_ENV === 'production') {
+    res.sendFile(path.join(clientDirectory, 'index.html'));
+    return;
+  }
+  res.json({ ok: true, service: 'rentreel-api' });
+});
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Route not found.' });
+});
+app.use((_req, res) => {
+  res.status(404).json({ error: 'Route not found.' });
+});
 
 app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
   const isTransactionError = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2028';

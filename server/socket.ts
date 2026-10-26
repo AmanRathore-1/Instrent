@@ -28,6 +28,7 @@ export function createSocketServer(httpServer: HttpServer): Server {
         else callback(new Error('Origin not allowed'));
       },
       credentials: true,
+      methods: ['GET', 'POST'],
     },
   });
 

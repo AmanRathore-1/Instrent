@@ -17,7 +17,8 @@ import type {
 } from '../types/client.ts';
 import axios from 'axios';
 
-const BASE_URL = '/api';
+export const API_URL = import.meta.env.VITE_API_URL ?? '';
+const BASE_URL = `${API_URL}/api`;
 
 let accessToken: string | null = null;
 
@@ -48,6 +49,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
       method: options?.method || 'GET',
       data: options?.body,
       headers: Object.fromEntries(headers.entries()),
+      withCredentials: true,
     });
   };
   try {
@@ -97,7 +99,10 @@ export const api = {
     restore: async () => {
       const renewed = await axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true });
       setAuthTokens(renewed.data);
-      return (await axios.get<{ user: User }>(`${BASE_URL}/auth/me`, { headers: { Authorization: `Bearer ${renewed.data.accessToken}` } })).data;
+      return (await axios.get<{ user: User }>(`${BASE_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${renewed.data.accessToken}` },
+        withCredentials: true,
+      })).data;
     },
   },
   heartbeat: () => fetchJson<{ success: boolean }>('/presence/heartbeat', { method: 'POST' }),
