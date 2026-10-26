@@ -158,7 +158,12 @@ const refreshCookieName = 'rentreel_refresh';
 const parseCookie = (header: string | undefined, name: string) =>
   (() => {
     const value = header?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
-    return value ? decodeURIComponent(value) : undefined;
+    if (!value) return undefined;
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return undefined;
+    }
   })();
 const setRefreshCookie = (res: Response, token: string) => {
   const secure = env.NODE_ENV === 'production' ? '; Secure' : '';
@@ -264,8 +269,14 @@ app.get('/api/users/discover', requireUser, async (req, res, next) => {
   }
 });
 
-app.get('/api/health', (_req, res) => {
-  res.status(200).json({ ok: true });
+app.get('/api/health', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.status(200).json({ ok: true, database: true });
+  } catch (error) {
+    logger.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Health check database query failed');
+    res.status(503).json({ ok: false, database: false });
+  }
 });
 const writeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const uploadLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
@@ -547,7 +558,7 @@ app.post('/api/auth/logout', async (req, res, next) => {
   }
 });
 
-app.post('/api/auth/refresh', async (req, res) => {
+app.post('/api/auth/refresh', async (req, res, next) => {
   if (!sameOrigin(req, res)) return;
   const rawToken = parseCookie(req.headers.cookie, refreshCookieName);
   if (!rawToken) {
@@ -558,9 +569,13 @@ app.post('/api/auth/refresh', async (req, res) => {
     const tokens = await rotateRefreshSession(rawToken, authMetadata(req));
     setRefreshCookie(res, tokens.refreshToken);
     res.json({ accessToken: tokens.accessToken });
-  } catch {
+  } catch (error) {
     clearRefreshCookie(res);
-    authError(res, 401, 'Invalid refresh session.', 'INVALID_REFRESH');
+    if (error instanceof Error && ['Invalid refresh token.', 'Refresh token reuse detected.'].includes(error.message)) {
+      authError(res, 401, 'Invalid refresh session.', 'INVALID_REFRESH');
+      return;
+    }
+    next(error);
   }
 });
 

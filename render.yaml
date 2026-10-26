@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: instrent
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:server:prod
+    healthCheckPath: /api/health

@@ -94,6 +94,14 @@ The build generates the Prisma client, type-checks the client and server, emits 
 
 Deploy the API, Socket.IO server, and built frontend together as one Node.js service. The Express server serves the `dist/` client in production, so the service must include both `dist/` and `dist-server/`. Configure the deployment platform to run the built JavaScript with Node rather than the development `tsx` scripts.
 
+For the current split deployment, use Vercel for the Vite frontend and Render for the Node/Express API. Set Vercel's `VITE_API_URL` to the Render origin without a trailing `/api`, for example `https://instrent.onrender.com`. The client appends `/api` itself and uses the same origin for Socket.IO. The checked-in `vercel.json` rewrite remains a same-origin fallback, but the explicit Render URL is recommended for WebSocket support.
+
+Set this variable only in Vercel's public build environment:
+
+- `VITE_API_URL=https://instrent.onrender.com`
+
+Do not put database URLs, SMTP credentials, JWT secrets, OTP secrets, or Cloudinary secrets in Vercel or any `VITE_` variable.
+
 Set these server environment variables in the deployment platform (never commit credentials):
 
 - `NODE_ENV=production`
@@ -105,6 +113,8 @@ Set these server environment variables in the deployment platform (never commit 
 - `OTP_HMAC_SECRET` with a different value and at least 32 random characters
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL`
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` together if uploads are enabled
+
+Set `CLIENT_URL` to the exact Vercel origin and set `ALLOWED_ORIGINS` to a comma-separated list of every trusted frontend origin, such as the production Vercel URL and any explicitly approved preview URL. Do not use `*` with credentials. The checked-in `render.yaml` defines the non-secret Render build, start, and health-check settings; add environment values in the Render dashboard.
 
 Run these commands in the build/release stage:
 
@@ -119,7 +129,7 @@ Keep the generated Prisma client and its runtime dependencies available to the N
 
 ## SMTP and HTTPS
 
-Configure an SMTP provider and use a sender address permitted by that provider. Use `SMTP_SECURE=true` for TLS connections such as port 465; use `SMTP_SECURE=false` for STARTTLS providers such as port 587. Use HTTPS in production so the refresh cookie remains Secure; configure CORS with the exact deployed frontend origin and keep the refresh cookie `HttpOnly`, `SameSite`, and scoped to `/api/auth`.
+Configure an SMTP provider and use a sender address permitted by that provider. Nodemailer now applies bounded connection, greeting, and socket timeouts so a blocked provider fails promptly instead of leaving signup requests hanging. Render free services commonly restrict outbound SMTP ports; if the configured SMTP host still times out from Render, an HTTPS transactional-email provider must be selected and integrated with its documented API before production email can be considered operational. Use `SMTP_SECURE=true` for TLS connections such as port 465; use `SMTP_SECURE=false` for STARTTLS providers such as port 587. Use HTTPS in production so the refresh cookie remains Secure; configure CORS with the exact deployed frontend origin and keep the refresh cookie `HttpOnly`, `SameSite`, and scoped to `/api/auth`.
 
 Legacy account cutover is non-destructive: existing users retain their profile data, request **Forgot password**, receive a mailbox OTP, and establish a password. After the reset succeeds, their email is marked verified if it was previously empty. Monitor the migration and only then plan a separate compatibility-column removal migration.
 
