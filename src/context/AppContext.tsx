@@ -18,7 +18,7 @@ import type {
   MessageContext,
 } from '../types/client';
 
-import { api, API_URL, getAccessToken } from '../lib/api';
+import { api, API_URL, ApiError, getAccessToken } from '../lib/api';
 
 interface ToastInfo {
   id: string;
@@ -60,7 +60,7 @@ interface AppContextType {
     type?: 'success' | 'info' | 'warning' | 'error'
   ) => void;
 
-  refreshUserData: () => Promise<void>;
+  refreshUserData: () => Promise<boolean>;
   refreshNotifications: () => Promise<void>;
   refreshUnreadMessages: () => Promise<void>;
   realtimeSocket: Socket | null;
@@ -135,7 +135,7 @@ export const AppProvider = ({
   }>({ isOpen: false });
 
   const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const userSyncRequest = useRef<Promise<void> | null>(null);
+  const userSyncRequest = useRef<Promise<boolean> | null>(null);
 
   const showToast = useCallback((
     message: string,
@@ -170,16 +170,21 @@ export const AppProvider = ({
     };
   }, []);
 
-  const refreshUserData = useCallback(async (): Promise<void> => {
+  const refreshUserData = useCallback(async (): Promise<boolean> => {
     if (userSyncRequest.current) return userSyncRequest.current;
     const request = (async () => {
       try {
         const data = await api.syncCurrentUser();
         setCurrentUser(data.user);
         setUserLoadError(null);
+        return true;
       } catch (error) {
         console.error('Failed to sync the account with the app profile:', error);
         setCurrentUser(null);
+        if (error instanceof ApiError && (error.status === 401 || error.status === 404 || error.code === 'UNAUTHENTICATED')) {
+          setUserLoadError(null);
+          return false;
+        }
         throw error;
       }
     })();
@@ -191,6 +196,7 @@ export const AppProvider = ({
         userSyncRequest.current = null;
       }
     }
+    return request;
   }, []);
 
   const refreshUnreadMessages = useCallback(async (): Promise<void> => {
@@ -218,9 +224,9 @@ export const AppProvider = ({
 
     const initializeUser = async () => {
       try {
-        await refreshUserData();
+        const hasProfile = await refreshUserData();
 
-        if (!isMounted) return;
+        if (!isMounted || !hasProfile) return;
 
         await Promise.all([refreshNotifications(), refreshUnreadMessages()]);
       } catch (error: unknown) {

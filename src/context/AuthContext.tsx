@@ -1,14 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { User } from '../types/client.ts';
-import { api, clearAuthTokens, setAuthTokens } from '../lib/api.ts';
+import { api, clearAuthTokens, clearSessionHint, markSessionActive, setAuthTokens } from '../lib/api.ts';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 type AuthContextValue = {
   user: User | null;
+  loading: boolean;
   status: AuthStatus;
   login: (email: string, password: string) => Promise<User>;
   signup: (data: { name: string; email: string; password: string; username?: string }) => Promise<void>;
+  verifyOtp: (email: string, code: string) => Promise<User>;
+  resendOtp: (email: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<void>;
+  resetPassword: (grant: string, password: string) => Promise<void>;
   verifyEmail: (email: string, code: string) => Promise<User>;
   logout: () => Promise<void>;
 };
@@ -29,10 +34,12 @@ const broadcastLogout = () => {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>('loading');
+  const loading = status === 'loading';
 
   const logout = useCallback(async () => {
     await api.auth.logout();
     clearAuthTokens();
+    clearSessionHint();
     setUser(null);
     setStatus('unauthenticated');
     broadcastLogout();
@@ -50,12 +57,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         if (active) {
           clearAuthTokens();
+          clearSessionHint();
           setStatus('unauthenticated');
         }
       });
     const channel = 'BroadcastChannel' in window ? new BroadcastChannel('rentreel-auth') : null;
     const onLogout = () => {
       clearAuthTokens();
+      clearSessionHint();
       setUser(null);
       setStatus('unauthenticated');
     };
@@ -75,10 +84,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(() => ({
     user,
+    loading,
     status,
     login: async (email, password) => {
       const result = await api.auth.login({ email, password });
       setAuthTokens(result);
+      markSessionActive();
       setUser(result.user);
       setStatus('authenticated');
       return result.user;
@@ -86,15 +97,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signup: async (data) => {
       await api.auth.signup(data);
     },
+    verifyOtp: async (email, code) => {
+      const result = await api.auth.verifyEmail({ email, code });
+      setAuthTokens(result);
+      markSessionActive();
+      setUser(result.user);
+      setStatus('authenticated');
+      return result.user;
+    },
+    resendOtp: async (email) => {
+      await api.auth.resendVerification(email);
+    },
+    forgotPassword: async (email) => {
+      await api.auth.forgotPassword(email);
+    },
+    resetPassword: async (grant, password) => {
+      await api.auth.resetPassword({ grant, password });
+      clearAuthTokens();
+      clearSessionHint();
+      setUser(null);
+      setStatus('unauthenticated');
+    },
     verifyEmail: async (email, code) => {
       const result = await api.auth.verifyEmail({ email, code });
       setAuthTokens(result);
+      markSessionActive();
       setUser(result.user);
       setStatus('authenticated');
       return result.user;
     },
     logout,
-  }), [logout, status, user]);
+  }), [loading, logout, status, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -2,6 +2,8 @@ type RawClient = {
   $executeRaw: (query: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
 };
 
+export const shouldSyncLegacyUserProfile = (clerkId: string | null) => Boolean(clerkId);
+
 type RoomProjection = {
   id: string;
   ownerId: string;

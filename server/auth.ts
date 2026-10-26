@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import argon2 from 'argon2';
 import { jwtVerify, SignJWT } from 'jose';
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import pino from 'pino';
 import { prisma } from './prisma.js';
 import { env } from './config/env.js';
@@ -12,7 +12,14 @@ const otpLifetimeMs = env.OTP_TTL_SECONDS * 1000;
 const grantLifetimeMs = 10 * 60 * 1000;
 const maxOtpAttempts = 5;
 const jwtSecret = new TextEncoder().encode(env.JWT_ACCESS_SECRET);
-const resend = new Resend(env.RESEND_API_KEY);
+const smtpTransporter = env.SMTP_HOST
+  ? nodemailer.createTransport({
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      secure: env.SMTP_SECURE,
+      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+    })
+  : null;
 const otpSecret = Buffer.from(env.OTP_HMAC_SECRET, 'utf8');
 const authLogger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
@@ -172,17 +179,23 @@ export const issueOtp = async (userId: string, purpose: AuthPurpose) => {
   const code = String(randomInt(100000, 1_000_000));
   const email = emailTemplate(purpose, code);
   authLogger.info({ userId, purpose, attempted: true }, 'Attempting OTP email delivery');
-  const sent = await resend.emails.send({ from: env.RESEND_FROM_EMAIL, to: user.email, ...email });
-  if (sent.error) {
+  if (!smtpTransporter || !env.SMTP_FROM_EMAIL) {
+    authLogger.error({ userId, purpose }, 'OTP email delivery is not configured');
+    throw new Error('Email delivery is not configured.');
+  }
+  try {
+    const sent = await smtpTransporter.sendMail({ from: env.SMTP_FROM_EMAIL, to: user.email, ...email });
+    authLogger.info({ userId, purpose, smtpMessageId: sent.messageId }, 'OTP email delivery accepted');
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Email delivery failed.') throw error;
     authLogger.error({
       userId,
       purpose,
-      resendErrorName: sent.error.name,
-      resendErrorMessage: sent.error.message,
+      smtpErrorName: error instanceof Error ? error.name : 'UnknownError',
+      smtpErrorMessage: error instanceof Error ? error.message : 'Unknown email delivery error',
     }, 'OTP email delivery failed');
     throw new Error('Email delivery failed.');
   }
-  authLogger.info({ userId, purpose, resendMessageId: sent.data?.id }, 'OTP email delivery accepted');
   const now = new Date();
   await prisma.$transaction(async (transaction) => {
     await transaction.emailOtp.updateMany({

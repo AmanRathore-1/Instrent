@@ -16,9 +16,9 @@ npm install
 
 ## Authentication
 
-RentReel uses email/password accounts with six-digit email verification and password-reset codes delivered through Resend. Access tokens are short-lived JWTs held in browser memory; refresh tokens are opaque, stored hashed in PostgreSQL, rotated on every refresh, and sent only as an HttpOnly cookie. The access token is sent to the API and Socket.IO over HTTPS.
+RentReel uses email/password accounts with six-digit email verification and password-reset codes delivered through SMTP with Nodemailer. Access tokens are short-lived JWTs held in browser memory; refresh tokens are opaque, stored hashed in PostgreSQL, rotated on every refresh, and sent only as an HttpOnly cookie. The access token is sent to the API and Socket.IO over HTTPS.
 
-Configure `DATABASE_URL`, `DIRECT_URL`, `CLIENT_URL`, `ALLOWED_ORIGINS`, `JWT_ACCESS_SECRET`, `OTP_HMAC_SECRET`, `RESEND_API_KEY`, and `RESEND_FROM_EMAIL` in `.env`. Generate separate strong secrets with `openssl rand -base64 48`. Refresh tokens are opaque, so `JWT_REFRESH_SECRET` is not used. Optional Cloudinary variables are required together for room photo uploads; without them, the API reports that uploads are unavailable. Keep `.env` private; it is ignored by Git.
+Configure `DATABASE_URL`, `DIRECT_URL`, `CLIENT_URL`, `ALLOWED_ORIGINS`, `JWT_ACCESS_SECRET`, `OTP_HMAC_SECRET`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL` in `.env`. Generate separate strong secrets with `openssl rand -base64 48`. Refresh tokens are opaque, so `JWT_REFRESH_SECRET` is not used. Optional Cloudinary variables are required together for room photo uploads; without them, the API reports that uploads are unavailable. Keep `.env` private; it is ignored by Git.
 
 ## Initialize the database
 
@@ -103,7 +103,7 @@ Set these server environment variables in the deployment platform (never commit 
 - `APP_URL` and `ALLOWED_ORIGINS` set to the HTTPS deployment origins
 - `JWT_ACCESS_SECRET` with at least 32 random characters
 - `OTP_HMAC_SECRET` with a different value and at least 32 random characters
-- `RESEND_API_KEY` and a verified `RESEND_FROM_EMAIL`
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL`
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` together if uploads are enabled
 
 Run these commands in the build/release stage:
@@ -117,9 +117,9 @@ npm run start:server:prod
 
 Keep the generated Prisma client and its runtime dependencies available to the Node process. The deployment platform should route public HTTP and WebSocket traffic to the same service and port. Use `GET /api/health` as a database-aware health check; it returns `503` if the database is unavailable. The Express production fallback serves `index.html` for client-side routes, so refreshing a frontend route works when traffic reaches this service.
 
-## Resend and HTTPS
+## SMTP and HTTPS
 
-Create a Resend account and API key, then verify the sending domain. Production email should use a sender on that verified domain after publishing the SPF, DKIM, and DMARC records Resend provides. The onboarding sender `onboarding@resend.dev` is limited and should not be used for production delivery. Use HTTPS in production so the refresh cookie remains Secure; configure CORS with the exact deployed frontend origin and keep the refresh cookie `HttpOnly`, `SameSite`, and scoped to `/api/auth`.
+Configure an SMTP provider and use a sender address permitted by that provider. Use `SMTP_SECURE=true` for TLS connections such as port 465; use `SMTP_SECURE=false` for STARTTLS providers such as port 587. Use HTTPS in production so the refresh cookie remains Secure; configure CORS with the exact deployed frontend origin and keep the refresh cookie `HttpOnly`, `SameSite`, and scoped to `/api/auth`.
 
 Legacy account cutover is non-destructive: existing users retain their profile data, request **Forgot password**, receive a mailbox OTP, and establish a password. After the reset succeeds, their email is marked verified if it was previously empty. Monitor the migration and only then plan a separate compatibility-column removal migration.
 

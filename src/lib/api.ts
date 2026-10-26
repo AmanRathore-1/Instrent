@@ -21,6 +21,23 @@ export const API_URL = import.meta.env.VITE_API_URL ?? '';
 const BASE_URL = `${API_URL}/api`;
 
 let accessToken: string | null = null;
+let refreshPromise: Promise<string> | null = null;
+const sessionHintKey = 'rentreel-auth-session';
+
+export class ApiError extends Error {
+  code?: string;
+  status?: number;
+  requiresVerification?: boolean;
+  fieldErrors: Record<string, string>;
+
+  constructor(message: string, options: { code?: string; status?: number; fieldErrors?: Record<string, string> } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = options.code;
+    this.status = options.status;
+    this.fieldErrors = options.fieldErrors ?? {};
+  }
+}
 
 export function setAuthTokens(tokens: { accessToken: string }) {
   accessToken = tokens.accessToken;
@@ -30,12 +47,38 @@ export function clearAuthTokens() {
   accessToken = null;
 }
 
+export function hasSessionHint() {
+  return localStorage.getItem(sessionHintKey) === '1';
+}
+
+export function markSessionActive() {
+  localStorage.setItem(sessionHintKey, '1');
+}
+
+export function clearSessionHint() {
+  localStorage.removeItem(sessionHintKey);
+}
+
 export function notifyAuthExpired() {
   window.dispatchEvent(new CustomEvent('rentreel-auth-expired'));
 }
 
 export function getAccessToken(): string | null {
   return accessToken;
+}
+
+async function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true })
+      .then((response) => {
+        setAuthTokens(response.data);
+        return response.data.accessToken;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -57,35 +100,83 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   } catch (error) {
     if (!isPublicAuthEndpoint && axios.isAxiosError(error) && error.response?.status === 401) {
       try {
-        const renewed = await axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true });
-        setAuthTokens(renewed.data);
-        return (await request(renewed.data.accessToken)).data;
+        const renewed = await refreshAccessToken();
+        return (await request(renewed)).data;
       } catch {
         clearAuthTokens();
         notifyAuthExpired();
+        const authError = new ApiError('Authentication required.', { code: 'UNAUTHENTICATED', status: 401 });
+        throw authError;
       }
     }
-    if (axios.isAxiosError<{ error?: string }>(error)) throw new Error(error.response?.data?.error || error.message);
+    if (axios.isAxiosError(error)) throw toApiError(error);
     throw error;
   }
 }
 
-const publicJson = async <T>(url: string, body: unknown) => {
-  try {
-    return (await axios.post<T>(`${BASE_URL}${url}`, body, { withCredentials: true })).data;
-  } catch (error) {
-    if (axios.isAxiosError<{ error?: string; requiresVerification?: boolean }>(error)) {
-      const typed = new Error(error.response?.data?.error || error.message) as Error & { requiresVerification?: boolean };
-      typed.requiresVerification = error.response?.data?.requiresVerification;
-      throw typed;
-    }
-    throw error;
+type ApiErrorResponse = {
+  error?: string;
+  code?: string;
+  requiresVerification?: boolean;
+  details?: Array<{ field?: string; message?: string }>;
+};
+
+const toApiError = (error: unknown) => {
+  if (!axios.isAxiosError<ApiErrorResponse>(error)) return error;
+  const response = error.response?.data;
+  const fieldErrors: Record<string, string> = {};
+  response?.details?.forEach((detail) => {
+    if (detail.field && detail.message) fieldErrors[detail.field] = detail.message;
+  });
+  const detailMessage = Object.values(fieldErrors).join(' ');
+  return new ApiError(detailMessage || response?.error || error.message, {
+    code: response?.code,
+    status: error.response?.status,
+    fieldErrors,
+  });
+};
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  const response = await fetch(`${BASE_URL}${path}`, {
+    ...init,
+    headers,
+    credentials: 'include',
+  });
+  const contentType = response.headers.get('content-type') ?? '';
+  const body = contentType.includes('application/json') ? await response.json() : null;
+  if (!response.ok) {
+    const data = body as ApiErrorResponse | null;
+    const fieldErrors: Record<string, string> = {};
+    data?.details?.forEach((detail) => {
+      if (detail.field && detail.message) fieldErrors[detail.field] = detail.message;
+    });
+    const apiError = new ApiError(data?.error ?? `Request failed with status ${response.status}.`, {
+      code: data?.code,
+      status: response.status,
+      fieldErrors,
+    });
+    apiError.requiresVerification = data?.requiresVerification;
+    throw apiError;
   }
+  return body as T;
+}
+
+const publicJson = async <T>(url: string, body: unknown) => {
+  return apiFetch<T>(url, { method: 'POST', body: JSON.stringify(body) });
 };
 
 export const api = {
   auth: {
-    signup: (data: { email: string; password: string; name: string; username?: string }) => publicJson<{ requiresVerification: boolean; user: User }>('/auth/signup', data),
+    signup: (data: { email: string; password: string; name: string; username?: string }) =>
+      publicJson<{ requiresVerification: boolean; user: User }>('/auth/signup', {
+        email: data.email.trim(),
+        password: data.password,
+        name: data.name.trim(),
+        ...(data.username?.trim() ? { username: data.username.trim() } : {}),
+      }),
     login: (data: { email: string; password: string }) => publicJson<{ accessToken: string; user: User }>('/auth/login', data),
     verifyEmail: (data: { email: string; code: string }) => publicJson<{ accessToken: string; user: User }>('/auth/verify-email', data),
     resendVerification: (email: string) => publicJson<{ success: boolean }>('/auth/resend-verification-otp', { email }),
@@ -95,14 +186,24 @@ export const api = {
     logout: async () => {
       await axios.post(`${BASE_URL}/auth/logout`, undefined, { withCredentials: true }).catch(() => undefined);
       clearAuthTokens();
+      clearSessionHint();
     },
     restore: async () => {
-      const renewed = await axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true });
-      setAuthTokens(renewed.data);
+      const renewed = await refreshAccessToken();
       return (await axios.get<{ user: User }>(`${BASE_URL}/auth/me`, {
-        headers: { Authorization: `Bearer ${renewed.data.accessToken}` },
+        headers: { Authorization: `Bearer ${renewed}` },
         withCredentials: true,
       })).data;
+    },
+    me: async () => {
+      try {
+        return (await axios.get<{ user: User }>(`${BASE_URL}/auth/me`, {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+          withCredentials: true,
+        })).data;
+      } catch (error) {
+        throw toApiError(error);
+      }
     },
   },
   heartbeat: () => fetchJson<{ success: boolean }>('/presence/heartbeat', { method: 'POST' }),
@@ -116,7 +217,7 @@ export const api = {
     onlineCount: number;
     presenceTimeoutSeconds: number;
   }>(`/users/discover${query ? `?q=${encodeURIComponent(query)}` : ''}`),
-  syncCurrentUser: () => fetchJson<{ user: User }>('/auth/profile', { method: 'POST' }),
+  syncCurrentUser: () => fetchJson<{ user: User }>('/profile'),
   switchRole: (role: UserRole) =>
     fetchJson<{ success: boolean; user: User }>('/auth/switch-role', {
       method: 'POST',

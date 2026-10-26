@@ -27,7 +27,7 @@ import {
 } from './cloudinary.js';
 import { persistThenPublish } from './modules/social/service.js';
 import { createRoomRouter } from './modules/rooms/routes.js';
-import { syncLegacyMessage, syncLegacyMessageStatus, syncLegacyNotification, syncLegacyNotificationStatus } from './legacy-sync.js';
+import { shouldSyncLegacyUserProfile, syncLegacyMessage, syncLegacyMessageStatus, syncLegacyNotification, syncLegacyNotificationStatus } from './legacy-sync.js';
 import {
   consumeOtp,
   consumePasswordResetGrant,
@@ -281,7 +281,10 @@ const signupSchema = z.object({
   email: z.string().email().max(320),
   password: z.string().min(12).max(128),
   name: z.string().trim().min(1).max(120),
-  username: z.string().trim().min(3).max(30).regex(/^[a-zA-Z0-9_.]+$/).optional(),
+  username: z.preprocess(
+    (value) => typeof value === 'string' && value.trim() === '' ? undefined : value,
+    z.string().trim().min(3).max(30).regex(/^[a-zA-Z0-9_.]+$/).optional(),
+  ),
 }).strict();
 const loginSchema = z.object({
   email: z.string().email().max(320),
@@ -311,14 +314,28 @@ const publicAuthUser = (user: {
 
 const authMetadata = (req: Request) => ({ userAgent: req.get('user-agent'), ip: req.ip });
 const hashValue = (value: string) => createHash('sha256').update(value).digest('hex');
-const authError = (res: Response, status: number, error: string, code: string) =>
-  res.status(status).json({ error, code });
+const authError = (
+  res: Response,
+  status: number,
+  error: string,
+  code: string,
+  details?: Array<{ field: string; message: string }>,
+) => res.status(status).json({ error, code, ...(details ? { details } : {}) });
 
 app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
   try {
     const parsed = signupSchema.safeParse(req.body);
     if (!parsed.success) {
-      authError(res, 422, 'Provide valid account details.', 'VALIDATION_ERROR');
+      authError(
+        res,
+        422,
+        'Provide valid account details.',
+        'VALIDATION_ERROR',
+        parsed.error.issues.map((issue) => ({
+          field: issue.path.length ? issue.path.join('.') : 'request',
+          message: issue.message,
+        })),
+      );
       return;
     }
     const email = normalizeEmail(parsed.data.email);
@@ -346,6 +363,20 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
     res.status(201).json({ requiresVerification: true, user: publicAuthUser(user) });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const target = Array.isArray(error.meta?.target)
+        ? error.meta.target.filter((value): value is string => typeof value === 'string')
+        : typeof error.meta?.target === 'string'
+          ? [error.meta.target]
+          : [];
+      logger.warn({ conflictTarget: target }, 'Signup unique constraint conflict');
+      if (target.includes('email')) {
+        authError(res, 409, 'An account with that email already exists.', 'EMAIL_IN_USE');
+        return;
+      }
+      if (target.includes('username')) {
+        authError(res, 409, 'That username is already in use.', 'USERNAME_IN_USE');
+        return;
+      }
       authError(res, 409, 'An account with those details already exists.', 'ACCOUNT_CONFLICT');
       return;
     }
@@ -772,6 +803,7 @@ const findSignedInUser = async (req: Request, res: Response) => {
 };
 
 const syncLegacyUserProfile = async (user: DbUser) => {
+  if (!shouldSyncLegacyUserProfile(user.clerkId)) return;
   const [followersCount, followingCount] = await Promise.all([
     prisma.follow.count({ where: { followedId: user.id } }),
     prisma.follow.count({ where: { followerId: user.id } }),
@@ -880,7 +912,7 @@ const serializeReel = async (reel: {
   isLiked: reel.likes.length > 0,
 });
 
-app.post('/api/auth/profile', requireUser, async (req, res, next) => {
+const handleCurrentProfile = async (_req: Request, res: Response, next: (error?: unknown) => void) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: res.locals.userId as string } });
     if (!user) {
@@ -893,7 +925,10 @@ app.post('/api/auth/profile', requireUser, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+};
+
+app.get('/api/profile', requireUser, handleCurrentProfile);
+app.post('/api/auth/profile', requireUser, handleCurrentProfile);
 
 app.post('/api/auth/switch-role', requireUser, async (req, res, next) => {
   try {
@@ -2582,6 +2617,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) 
   const isTransactionError = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2028';
   logger.error({
     errorName: error instanceof Error ? error.name : 'UnknownError',
+    errorMessage: error instanceof Error ? error.message.slice(0, 500) : 'Unknown API error',
     prismaCode: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : undefined,
     ...(isTransactionError && error instanceof Error ? { prismaMessage: error.message.slice(0, 500) } : {}),
   }, 'API request failed');
@@ -2617,14 +2653,17 @@ app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) 
     res.status(503).json({ error: 'We could not deliver the email. Please try again later.', code: 'EMAIL_DELIVERY_FAILED' });
     return;
   }
+  if (error instanceof Error && error.message === 'Email delivery is not configured.') {
+    res.status(503).json({ error: 'Email delivery is not configured. Add the SMTP environment variables and try again.', code: 'EMAIL_DELIVERY_NOT_CONFIGURED' });
+    return;
+  }
   res.status(500).json({ error: 'Unexpected server error.' });
 });
 
 httpServer.listen(port, '0.0.0.0', () => {
   logger.info({
     port,
-    resendApiKeyConfigured: Boolean(env.RESEND_API_KEY),
-    resendFromEmailConfigured: Boolean(env.RESEND_FROM_EMAIL),
+    smtpConfigured: Boolean(env.SMTP_HOST && env.SMTP_FROM_EMAIL),
   }, 'RentReel API and Socket.IO listening');
 });
 
