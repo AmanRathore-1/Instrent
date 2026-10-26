@@ -66,7 +66,7 @@ export const syncLegacyRoom = async (client: RawClient, room: RoomProjection) =>
        "amenities", "genderPreference", "status", "createdAt", "expiresAt",
        "rentedAt", "renewedAt", "viewsCount", "inquiriesCount", "savesCount", "isFeatured")
     VALUES
-      (            ${room.id}, ${room.id}, ${room.id}, (SELECT "id" FROM "public"."UserProfile" WHERE "clerkUserId" = (SELECT "clerkId" FROM "rentreel"."User" WHERE "id" = CAST(${room.ownerId} AS uuid))), ${room.title},
+      (${room.id}, ${room.id}, ${room.id}, (SELECT "id" FROM "public"."UserProfile" WHERE "clerkUserId" = (SELECT "clerkId" FROM "rentreel"."User" WHERE "id" = CAST(${room.ownerId} AS uuid))), ${room.title},
        ${room.description}, ${room.rent}, 0, 'ROOM', ${room.roomType}, ${room.city},
        ${room.area}, ${photos}, ${room.amenities}, 'ANY',
        ${isAvailable ? 'ACTIVE' : room.status}, ${room.createdAt}, ${expiresAt},

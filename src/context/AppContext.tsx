@@ -18,7 +18,7 @@ import type {
   MessageContext,
 } from '../types/client';
 
-import { api, getClerkAccessToken } from '../lib/api';
+import { api, getAccessToken } from '../lib/api';
 
 interface ToastInfo {
   id: string;
@@ -94,11 +94,9 @@ const realtimeDisconnectWarningDelayMs = 6_000;
 
 export const AppProvider = ({
   children,
-  clerkUserId,
   onSignOut,
 }: {
   children: ReactNode;
-  clerkUserId: string;
   onSignOut: () => Promise<void>;
 }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -180,7 +178,7 @@ export const AppProvider = ({
         setCurrentUser(data.user);
         setUserLoadError(null);
       } catch (error) {
-        console.error('Failed to sync the Clerk account with the app profile:', error);
+        console.error('Failed to sync the account with the app profile:', error);
         setCurrentUser(null);
         throw error;
       }
@@ -247,7 +245,7 @@ export const AppProvider = ({
     return () => {
       isMounted = false;
     };
-  }, [clerkUserId, refreshNotifications, refreshUnreadMessages, refreshUserData]);
+  }, [refreshNotifications, refreshUnreadMessages, refreshUserData]);
 
   const currentUserId = currentUser?.id;
 
@@ -278,11 +276,7 @@ export const AppProvider = ({
       .then(({ io }) => {
         if (isCancelled) return;
         const connectedSocket = io({
-          auth: (callback) => {
-            void getClerkAccessToken()
-              .then((token) => callback({ token: token ?? '' }))
-              .catch(() => callback({ token: '' }));
-          },
+          auth: (callback) => callback({ token: getAccessToken() ?? '' }),
         });
         socket = connectedSocket;
         setRealtimeSocket(connectedSocket);
@@ -314,6 +308,21 @@ export const AppProvider = ({
         };
 
         connectedSocket.on('connect', handleConnect);
+        const handleAuthExpired = () => {
+          connectedSocket.disconnect();
+          void api.auth.restore()
+            .then(() => connectedSocket.connect())
+            .catch(() => undefined);
+        };
+        const handleAuthConnectError = (error: Error) => {
+          if (/expired|invalid authentication token/i.test(error.message)) {
+            void api.auth.restore()
+              .then(() => connectedSocket.connect())
+              .catch(() => undefined);
+          }
+        };
+        connectedSocket.on('auth:expired', handleAuthExpired);
+        connectedSocket.on('connect_error', handleAuthConnectError);
         connectedSocket.on('disconnect', handleDisconnect);
         connectedSocket.on('connect_error', handleConnectError);
         connectedSocket.on('message:new', handleIncomingMessage);
@@ -323,6 +332,8 @@ export const AppProvider = ({
           connectedSocket.off('connect', handleConnect);
           connectedSocket.off('disconnect', handleDisconnect);
           connectedSocket.off('connect_error', handleConnectError);
+          connectedSocket.off('connect_error', handleAuthConnectError);
+          connectedSocket.off('auth:expired', handleAuthExpired);
           connectedSocket.off('message:new', handleIncomingMessage);
           connectedSocket.off('message:notification', handleMessageNotification);
           connectedSocket.off('notification:new', handleNotification);

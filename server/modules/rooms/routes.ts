@@ -98,9 +98,9 @@ const publicRoom = (room: {
 });
 
 const getViewer = async (req: Request, res: Response, prisma: PrismaClient) => {
-  const clerkUserId = res.locals.clerkUserId as string | undefined;
-  if (!clerkUserId) return null;
-  return prisma.user.findUnique({ where: { clerkId: clerkUserId } });
+  const userId = res.locals.userId as string | undefined;
+  if (!userId) return null;
+  return prisma.user.findUnique({ where: { id: userId } });
 };
 
 const roomInclude = (viewerId: string) => ({

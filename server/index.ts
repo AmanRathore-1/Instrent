@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -5,13 +6,11 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import multer from 'multer';
-import { clerkClient, clerkMiddleware, getAuth } from '@clerk/express';
 import { rateLimit } from 'express-rate-limit';
 import type { Request, RequestHandler, Response } from 'express';
 import pino from 'pino';
 import { pinoHttp } from 'pino-http';
 import { Prisma, type User as DbUser } from '@prisma/client';
-import { Webhook } from 'svix';
 import { z } from 'zod';
 import { prisma } from './prisma.js';
 import { createSocketServer } from './socket.js';
@@ -29,6 +28,22 @@ import {
 import { persistThenPublish } from './modules/social/service.js';
 import { createRoomRouter } from './modules/rooms/routes.js';
 import { syncLegacyMessage, syncLegacyMessageStatus, syncLegacyNotification, syncLegacyNotificationStatus } from './legacy-sync.js';
+import {
+  consumeOtp,
+  consumePasswordResetGrant,
+  cleanupAuthRecords,
+  createPasswordResetGrant,
+  findUserByEmail,
+  findAuthUser,
+  hashPassword,
+  issueOtp,
+  issueSession,
+  normalizeEmail,
+  rotateRefreshSession,
+  verifyEmailOtp,
+  verifyAccessToken,
+  verifyPassword,
+} from './auth.js';
 
 const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 const port = env.PORT;
@@ -38,27 +53,31 @@ const clientDirectory = path.join(projectRoot, 'dist');
 const app = express();
 const httpServer = createServer(app);
 const io: SocketServer = createSocketServer(httpServer);
+const authCleanupTimer = setInterval(() => {
+  void cleanupAuthRecords().catch((error: unknown) => {
+    logger.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Auth record cleanup failed');
+  });
+}, 24 * 60 * 60 * 1000);
+authCleanupTimer.unref();
 const routeParam = (value: string | string[] | undefined) =>
   typeof value === 'string' ? value : undefined;
 
-const webhookSecret = env.CLERK_WEBHOOK_SIGNING_SECRET;
-const webhookLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const authLimiter = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
-const clerkWebhookSchema = z.object({
-  type: z.enum(['user.created', 'user.updated', 'user.deleted']),
-  data: z.object({
-    id: z.string().min(1),
-    username: z.string().nullable().optional(),
-    first_name: z.string().nullable().optional(),
-    last_name: z.string().nullable().optional(),
-    image_url: z.string().url().optional(),
-    primary_email_address_id: z.string().nullable().optional(),
-    email_addresses: z.array(z.object({
-      id: z.string(),
-      email_address: z.string().email(),
-    })).optional(),
-  }),
-});
+const accountAttempts = new Map<string, { count: number; resetAt: number }>();
+const accountRateLimit = (req: Request, res: Response, key: string) => {
+  const now = Date.now();
+  const current = accountAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    accountAttempts.set(key, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (current.count >= 10) {
+    res.status(429).json({ error: 'Too many authentication attempts. Try again later.', code: 'RATE_LIMITED' });
+    return false;
+  }
+  current.count += 1;
+  return true;
+};
 const switchRoleSchema = z.object({
   role: z.enum(['TENANT', 'OWNER', 'PG_HOSTEL', 'BROKER']),
 }).strict();
@@ -91,57 +110,9 @@ const decodeCursor = (cursor: unknown) => {
 const encodeCursor = (createdAt: Date, id: string) =>
   Buffer.from(JSON.stringify({ createdAt: createdAt.toISOString(), id })).toString('base64url');
 
-const usernameBase = (name: string, clerkUserId: string) => {
+const usernameBase = (name: string, userId: string) => {
   const safeName = name.toLowerCase().replace(/[^a-z0-9_]+/g, '').slice(0, 18);
-  return safeName || `user_${clerkUserId.slice(-8)}`;
-};
-
-const handleClerkWebhook = async (eventId: string, event: z.infer<typeof clerkWebhookSchema>) => {
-  await prisma.$transaction(async (transaction) => {
-    await transaction.webhookEvent.create({
-      data: { eventId, eventType: event.type },
-    });
-    if (event.type === 'user.deleted') {
-      await transaction.user.deleteMany({ where: { clerkId: event.data.id } });
-      return;
-    }
-
-    const data = event.data;
-    const email = data.email_addresses?.find(
-      (address) => address.id === data.primary_email_address_id,
-    )?.email_address || '';
-    const name = [data.first_name, data.last_name].filter(Boolean).join(' ') || email || 'New user';
-    const existing = await transaction.user.findUnique({ where: { clerkId: data.id } });
-    const requestedUsername = data.username?.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 30);
-    const base = requestedUsername && requestedUsername.length >= 3
-      ? requestedUsername
-      : usernameBase(name, data.id);
-    let username = existing?.username || base;
-    if (!existing && await transaction.user.findUnique({ where: { username } })) {
-      username = `${base.slice(0, 22)}_${data.id.slice(-6)}`;
-    }
-    await transaction.user.upsert({
-      where: { clerkId: data.id },
-      create: {
-        clerkId: data.id,
-        username,
-        name,
-        email,
-        avatar: data.image_url || '',
-      },
-      update: {
-        name,
-        email,
-        ...(data.image_url ? { avatar: data.image_url } : {}),
-      },
-    });
-  }).catch(async (error: unknown) => {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      const processed = await prisma.webhookEvent.findUnique({ where: { eventId } });
-      if (processed) return;
-    }
-    throw error;
-  });
+  return safeName || `user_${userId.slice(-8)}`;
 };
 
 app.use(helmet());
@@ -161,78 +132,65 @@ app.use(cors({
   credentials: true,
 }));
 
-app.post('/api/webhooks/clerk', webhookLimiter, express.raw({ type: 'application/json', limit: '1mb' }), async (req, res, next) => {
-  if (!webhookSecret) {
-    res.status(503).json({ error: 'Clerk webhooks are not configured. Set CLERK_WEBHOOK_SIGNING_SECRET.' });
-    return;
-  }
-  const svixId = req.header('svix-id');
-  const svixTimestamp = req.header('svix-timestamp');
-  const svixSignature = req.header('svix-signature');
-  if (!svixId || !svixTimestamp || !svixSignature) {
-    res.status(400).json({ error: 'Missing webhook signature headers.' });
-    return;
-  }
-  let parsedEvent: z.infer<typeof clerkWebhookSchema>;
-  try {
-    const verifier = new Webhook(webhookSecret);
-    const verified = verifier.verify(req.body.toString('utf8'), {
-      'svix-id': svixId,
-      'svix-timestamp': svixTimestamp,
-      'svix-signature': svixSignature,
-    });
-    const parsed = clerkWebhookSchema.safeParse(verified);
-    if (!parsed.success) {
-      res.status(400).json({ error: 'Unsupported Clerk webhook payload.' });
-      return;
-    }
-    parsedEvent = parsed.data;
-  } catch (error) {
-    logger.warn({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Clerk webhook rejected or failed');
-    res.status(400).json({ error: 'Invalid Clerk webhook signature or payload.' });
-    return;
-  }
-  try {
-    await handleClerkWebhook(svixId, parsedEvent);
-    res.status(204).end();
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.use(clerkMiddleware({
-  secretKey: env.CLERK_SECRET_KEY,
-  publishableKey: env.VITE_CLERK_PUBLISHABLE_KEY,
-}));
 app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', express.static(uploadDirectory, { fallthrough: false, maxAge: '7d' }));
 
-const requireUser: RequestHandler = (req, res, next) => {
-  const userId = getAuth(req).userId;
-  if (!userId) {
+const requireAuth: RequestHandler = (req, res, next) => {
+  const authorization = req.header('authorization');
+  const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!token) {
     res.status(401).json({ error: 'Sign in to continue.' });
     return;
   }
-  res.locals.clerkUserId = userId;
-  next();
+  void verifyAccessToken(token)
+    .then((user) => {
+      res.locals.userId = user.id;
+      next();
+    })
+    .catch(() => res.status(401).json({ error: 'Your session has expired. Please sign in again.' }));
+};
+const requireUser = requireAuth;
+
+const refreshCookieName = 'rentreel_refresh';
+const parseCookie = (header: string | undefined, name: string) =>
+  (() => {
+    const value = header?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1);
+    return value ? decodeURIComponent(value) : undefined;
+  })();
+const setRefreshCookie = (res: Response, token: string) => {
+  const secure = env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${refreshCookieName}=${encodeURIComponent(token)}; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`);
+};
+const clearRefreshCookie = (res: Response) => {
+  res.setHeader('Set-Cookie', `${refreshCookieName}=; Path=/api/auth; HttpOnly; SameSite=Lax; Max-Age=0`);
+};
+const sameOrigin = (req: Request, res: Response) => {
+  const origin = req.header('origin');
+  if (origin && !isAllowedOrigin(origin)) {
+    res.status(403).json({ error: 'Origin is not allowed.', code: 'ORIGIN_NOT_ALLOWED' });
+    return false;
+  }
+  return true;
 };
 
 const requireAdmin: RequestHandler = async (req, res, next) => {
   try {
-    const clerkUserId = getAuth(req).userId;
-    if (!clerkUserId) {
+    const authorization = req.header('authorization');
+    const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+    if (!token) {
       res.status(401).json({ error: 'Sign in to continue.' });
       return;
     }
+    const authenticated = await verifyAccessToken(token);
     const user = await prisma.user.findUnique({
-      where: { clerkId: clerkUserId },
+      where: { id: authenticated.id },
       select: { activeRole: true },
     });
     if (user?.activeRole !== 'ADMIN') {
       res.status(403).json({ error: 'Administrator access is required.' });
       return;
     }
-    res.locals.clerkUserId = clerkUserId;
+    res.locals.userId = authenticated.id;
     next();
   } catch (error) {
     next(error);
@@ -242,7 +200,7 @@ const requireAdmin: RequestHandler = async (req, res, next) => {
 app.post('/api/presence/heartbeat', requireUser, async (_req, res, next) => {
   try {
     await prisma.user.update({
-      where: { clerkId: res.locals.clerkUserId as string },
+      where: { id: res.locals.userId as string },
       data: { lastSeenAt: new Date() },
     });
     res.json({ success: true });
@@ -254,7 +212,7 @@ app.post('/api/presence/heartbeat', requireUser, async (_req, res, next) => {
 app.get('/api/users/discover', requireUser, async (req, res, next) => {
   try {
     const viewer = await prisma.user.findUnique({
-      where: { clerkId: res.locals.clerkUserId as string },
+      where: { id: res.locals.userId as string },
       select: { id: true },
     });
     if (!viewer) {
@@ -314,7 +272,6 @@ app.get('/api/health', async (_req, res) => {
 });
 const writeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 const uploadLimiter = rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
-app.use('/api', createRoomRouter({ prisma, requireUser, writeLimiter, io }));
 app.use('/api', (req, res, next) => {
   if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
     return writeLimiter(req, res, next);
@@ -323,10 +280,277 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api/auth', authLimiter);
 
+const signupSchema = z.object({
+  email: z.string().email().max(320),
+  password: z.string().min(12).max(128),
+  name: z.string().trim().min(1).max(120),
+  username: z.string().trim().min(3).max(30).regex(/^[a-zA-Z0-9_.]+$/).optional(),
+}).strict();
+const loginSchema = z.object({
+  email: z.string().email().max(320),
+  password: z.string().min(1).max(128),
+}).strict();
+const otpSchema = z.object({
+  email: z.string().email().max(320),
+  code: z.string().regex(/^\d{6}$/),
+}).strict();
+const emailSchema = z.object({ email: z.string().email().max(320) }).strict();
+const resetGrantSchema = z.object({ grant: z.string().min(30).max(200) }).strict();
+const resetPasswordSchema = resetGrantSchema.extend({ password: z.string().min(12).max(128) }).strict();
+
+const publicAuthUser = (user: {
+  id: string;
+  email: string;
+  name: string;
+  username: string;
+  authVersion: number;
+  emailVerifiedAt?: Date | null;
+}) => ({
+  id: user.id,
+  email: user.email,
+  name: user.name,
+  username: user.username,
+});
+
+const authMetadata = (req: Request) => ({ userAgent: req.get('user-agent'), ip: req.ip });
+const hashValue = (value: string) => createHash('sha256').update(value).digest('hex');
+const authError = (res: Response, status: number, error: string, code: string) =>
+  res.status(status).json({ error, code });
+
+app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
+  try {
+    const parsed = signupSchema.safeParse(req.body);
+    if (!parsed.success) {
+      authError(res, 422, 'Provide valid account details.', 'VALIDATION_ERROR');
+      return;
+    }
+    const email = normalizeEmail(parsed.data.email);
+    if (!accountRateLimit(req, res, `signup:${email}`)) return;
+    if (await findUserByEmail(email)) {
+      authError(res, 409, 'An account with that email already exists.', 'EMAIL_IN_USE');
+      return;
+    }
+    const baseUsername = (parsed.data.username || usernameBase(parsed.data.name, randomUUID())).toLowerCase();
+    let username = baseUsername;
+    if (await prisma.user.findUnique({ where: { username } })) {
+      username = `${baseUsername.slice(0, 22)}_${randomUUID().slice(-6)}`;
+    }
+    const user = await prisma.user.create({
+      data: {
+        clerkId: null,
+        email,
+        name: parsed.data.name,
+        username,
+        passwordHash: await hashPassword(parsed.data.password),
+      },
+      select: { id: true, email: true, name: true, username: true, authVersion: true, emailVerifiedAt: true },
+    });
+    await issueOtp(user.id, 'EMAIL_VERIFY');
+    res.status(201).json({ requiresVerification: true, user: publicAuthUser(user) });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      authError(res, 409, 'An account with those details already exists.', 'ACCOUNT_CONFLICT');
+      return;
+    }
+    next(error);
+  }
+});
+
+app.post('/api/auth/login', async (req, res, next) => {
+  try {
+    const parsed = loginSchema.safeParse(req.body);
+    if (!parsed.success) {
+      authError(res, 422, 'Provide a valid email and password.', 'VALIDATION_ERROR');
+      return;
+    }
+    const user = await findUserByEmail(parsed.data.email);
+    if (!accountRateLimit(req, res, `login:${normalizeEmail(parsed.data.email)}`)) return;
+    if (!user?.passwordHash || !(await verifyPassword(parsed.data.password, user.passwordHash))) {
+      authError(res, 401, 'Email or password is incorrect.', 'INVALID_CREDENTIALS');
+      return;
+    }
+    if (!user.emailVerifiedAt) {
+      await issueOtp(user.id, 'EMAIL_VERIFY');
+      res.status(403).json({ error: 'Verify your email before signing in.', code: 'EMAIL_NOT_VERIFIED', requiresVerification: true });
+      return;
+    }
+    const tokens = await issueSession(user, authMetadata(req));
+    setRefreshCookie(res, tokens.refreshToken);
+    res.json({ accessToken: tokens.accessToken, user: publicAuthUser(user) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/verify-email', async (req, res, next) => {
+  try {
+    const parsed = otpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Enter the six-digit verification code.' });
+      return;
+    }
+    const user = await findUserByEmail(parsed.data.email);
+    if (!accountRateLimit(req, res, `verify-email:${normalizeEmail(parsed.data.email)}`)) return;
+    if (!user) {
+      authError(res, 400, 'Invalid or expired verification code.', 'INVALID_OTP');
+      return;
+    }
+    const verifiedUser = await verifyEmailOtp(user.id, parsed.data.code);
+    const tokens = await issueSession(verifiedUser, authMetadata(req));
+    setRefreshCookie(res, tokens.refreshToken);
+    res.json({ accessToken: tokens.accessToken, user: publicAuthUser(verifiedUser) });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Invalid or expired verification code.') {
+      authError(res, 400, error.message, 'INVALID_OTP');
+      return;
+    }
+    next(error);
+  }
+});
+
+app.post('/api/auth/resend-verification-otp', async (req, res, next) => {
+  try {
+    const parsed = emailSchema.safeParse(req.body);
+    if (!parsed.success) {
+      authError(res, 422, 'Provide a valid email address.', 'VALIDATION_ERROR');
+      return;
+    }
+    const user = await findUserByEmail(parsed.data.email);
+    if (!accountRateLimit(req, res, `resend:${normalizeEmail(parsed.data.email)}`)) return;
+    if (user && !user.emailVerifiedAt) await issueOtp(user.id, 'EMAIL_VERIFY');
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res, next) => {
+  try {
+    const parsed = emailSchema.safeParse(req.body);
+    if (!parsed.success) {
+      authError(res, 422, 'Provide a valid email address.', 'VALIDATION_ERROR');
+      return;
+    }
+    const user = await findUserByEmail(parsed.data.email);
+    logger.info({ accountFound: Boolean(user) }, 'Forgot-password account lookup completed');
+    if (!accountRateLimit(req, res, `forgot:${normalizeEmail(parsed.data.email)}`)) return;
+    if (user) await issueOtp(user.id, 'PASSWORD_RESET');
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/verify-reset-otp', async (req, res, next) => {
+  try {
+    const parsed = otpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      authError(res, 422, 'Enter a valid verification code.', 'VALIDATION_ERROR');
+      return;
+    }
+    const user = await findUserByEmail(parsed.data.email);
+    if (!accountRateLimit(req, res, `verify-reset:${normalizeEmail(parsed.data.email)}`)) return;
+    if (!user) throw new Error('Invalid or expired verification code.');
+    await consumeOtp(user.id, 'PASSWORD_RESET', parsed.data.code);
+    res.json({ grant: await createPasswordResetGrant(user.id) });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Invalid or expired verification code.') {
+      authError(res, 400, error.message, 'INVALID_OTP');
+      return;
+    }
+    next(error);
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res, next) => {
+  try {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      authError(res, 422, 'Enter a valid reset grant and password.', 'VALIDATION_ERROR');
+      return;
+    }
+    const userId = await consumePasswordResetGrant(parsed.data.grant);
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailVerifiedAt: true },
+    });
+    if (!existingUser) {
+      authError(res, 400, 'Invalid or expired reset grant.', 'INVALID_GRANT');
+      return;
+    }
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash: await hashPassword(parsed.data.password),
+        emailVerifiedAt: existingUser.emailVerifiedAt ?? new Date(),
+        authVersion: { increment: 1 },
+      },
+      select: { id: true, email: true, name: true, username: true, authVersion: true, emailVerifiedAt: true },
+    });
+    await prisma.refreshSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    io.in(`user:${userId}`).disconnectSockets(true);
+    const tokens = await issueSession(user, authMetadata(req));
+    setRefreshCookie(res, tokens.refreshToken);
+    res.json({ accessToken: tokens.accessToken, user: publicAuthUser(user) });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Invalid or expired reset grant.') {
+      authError(res, 400, error.message, 'INVALID_GRANT');
+      return;
+    }
+    next(error);
+  }
+});
+
+app.post('/api/auth/logout', async (req, res, next) => {
+  try {
+    if (!sameOrigin(req, res)) return;
+    const rawToken = parseCookie(req.headers.cookie, refreshCookieName);
+    if (rawToken) {
+      const session = await prisma.refreshSession.findUnique({ where: { tokenHash: hashValue(rawToken) }, select: { userId: true, id: true } });
+      if (session) {
+        await prisma.refreshSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
+        io.in(`user:${session.userId}`).disconnectSockets(true);
+      }
+    }
+    clearRefreshCookie(res);
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/auth/refresh', async (req, res) => {
+  if (!sameOrigin(req, res)) return;
+  const rawToken = parseCookie(req.headers.cookie, refreshCookieName);
+  if (!rawToken) {
+    authError(res, 401, 'Invalid refresh session.', 'INVALID_REFRESH');
+    return;
+  }
+  try {
+    const tokens = await rotateRefreshSession(rawToken, authMetadata(req));
+    setRefreshCookie(res, tokens.refreshToken);
+    res.json({ accessToken: tokens.accessToken });
+  } catch {
+    clearRefreshCookie(res);
+    authError(res, 401, 'Invalid refresh session.', 'INVALID_REFRESH');
+  }
+});
+
+app.get('/api/auth/me', requireAuth, async (_req, res) => {
+  const user = await findAuthUser(res.locals.userId as string);
+  if (!user) {
+    res.status(401).json({ error: 'Authentication required.', code: 'UNAUTHENTICATED' });
+    return;
+  }
+  res.json({ user: publicAuthUser(user) });
+});
+
+app.use('/api', createRoomRouter({ prisma, requireUser, writeLimiter, io }));
+
 app.get('/api/notifications', requireUser, async (req, res, next) => {
   try {
-    const clerkId = res.locals.clerkUserId as string;
-    const user = await prisma.user.findUnique({ where: { clerkId }, select: { id: true } });
+    const userId = res.locals.userId as string;
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) {
       res.status(404).json({ error: 'Profile not found.' });
       return;
@@ -364,9 +588,9 @@ app.get('/api/notifications', requireUser, async (req, res, next) => {
 
 app.patch('/api/notifications/:notificationId/read', requireUser, async (req, res, next) => {
   try {
-    const clerkId = res.locals.clerkUserId as string;
+    const userId = res.locals.userId as string;
     const notificationId = routeParam(req.params.notificationId);
-    const user = await prisma.user.findUnique({ where: { clerkId }, select: { id: true } });
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user || !notificationId) {
       res.status(user ? 400 : 404).json({ error: user ? 'Invalid notification id.' : 'Profile not found.' });
       return;
@@ -388,8 +612,8 @@ app.patch('/api/notifications/:notificationId/read', requireUser, async (req, re
 
 app.post('/api/notifications/mark-all-read', requireUser, async (req, res, next) => {
   try {
-    const clerkId = res.locals.clerkUserId as string;
-    const user = await prisma.user.findUnique({ where: { clerkId }, select: { id: true } });
+    const userId = res.locals.userId as string;
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) {
       res.status(404).json({ error: 'Profile not found.' });
       return;
@@ -401,7 +625,7 @@ app.post('/api/notifications/mark-all-read', requireUser, async (req, res, next)
     await prisma.$executeRaw`
       UPDATE "public"."Notification"
       SET "isRead" = true
-      WHERE "userId" = (SELECT "id" FROM "public"."UserProfile" WHERE "clerkUserId" = ${res.locals.clerkUserId as string})
+      WHERE "userId" = (SELECT "id" FROM "public"."UserProfile" WHERE "clerkUserId" = (SELECT "clerkId" FROM "rentreel"."User" WHERE "id" = CAST(${res.locals.userId as string} AS uuid)))
     `;
     res.json({ success: true });
   } catch (error) {
@@ -545,9 +769,9 @@ const serializeUser = async (user: DbUser, currentUserId?: string) => {
 };
 
 const findSignedInUser = async (req: Request, res: Response) => {
-  const clerkUserId = res.locals.clerkUserId as string | undefined;
-  if (!clerkUserId) return null;
-  return prisma.user.findUnique({ where: { clerkId: clerkUserId } });
+  const userId = res.locals.userId as string | undefined;
+  if (!userId) return null;
+  return prisma.user.findUnique({ where: { id: userId } });
 };
 
 const syncLegacyUserProfile = async (user: DbUser) => {
@@ -564,7 +788,7 @@ const syncLegacyUserProfile = async (user: DbUser) => {
     VALUES
       (${user.id}, ${user.clerkId}, ${user.username}, ${user.email}, ${user.name},
        ${user.avatar}, ${user.bio}, ARRAY[${user.activeRole}]::text[], ${user.activeRole},
-       ${user.city}, ${user.locationArea}, 'CLERK', ${user.clerkId}, ${user.isVerified},
+       ${user.city}, ${user.locationArea}, 'LOCAL', ${user.clerkId}, ${user.isVerified},
        ${followersCount}, ${followingCount}, ${user.createdAt}, ${user.updatedAt})
     ON CONFLICT ("clerkUserId") DO UPDATE SET
       "username" = EXCLUDED."username",
@@ -661,31 +885,11 @@ const serializeReel = async (reel: {
 
 app.post('/api/auth/profile', requireUser, async (req, res, next) => {
   try {
-    const clerkUserId = res.locals.clerkUserId as string;
-    const clerkUser = await clerkClient.users.getUser(clerkUserId);
-    const email = clerkUser.emailAddresses.find(
-      (address) => address.id === clerkUser.primaryEmailAddressId,
-    )?.emailAddress || '';
-    const name = clerkUser.fullName || clerkUser.firstName || email || 'New user';
-    const existingUser = await prisma.user.findUnique({ where: { clerkId: clerkUserId } });
-    const baseUsername = (clerkUser.username || usernameBase(name, clerkUserId)).toLowerCase();
-    let username = existingUser?.username || baseUsername;
-    if (!existingUser) {
-      const usernameCollision = await prisma.user.findUnique({ where: { username } });
-      if (usernameCollision) username = `${baseUsername}_${clerkUserId.slice(-6)}`;
+    const user = await prisma.user.findUnique({ where: { id: res.locals.userId as string } });
+    if (!user) {
+      res.status(404).json({ error: 'Profile not found.' });
+      return;
     }
-
-    const user = await prisma.user.upsert({
-      where: { clerkId: clerkUserId },
-      create: {
-        clerkId: clerkUserId,
-        username,
-        name,
-        email,
-        avatar: clerkUser.imageUrl,
-      },
-      update: { name, email, avatar: clerkUser.imageUrl },
-    });
     await syncLegacyUserProfile(user);
 
     res.json({ user: await serializeUser(user, user.id) });
@@ -701,8 +905,7 @@ app.post('/api/auth/switch-role', requireUser, async (req, res, next) => {
       res.status(400).json({ error: 'Choose a valid account role.' });
       return;
     }
-    const clerkUserId = res.locals.clerkUserId as string;
-    const user = await prisma.user.findUnique({ where: { clerkId: clerkUserId } });
+    const user = await prisma.user.findUnique({ where: { id: res.locals.userId as string } });
     if (!user) {
       res.status(404).json({ error: 'Create your profile before changing roles.' });
       return;
@@ -2215,8 +2418,7 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
 
 app.get('/api/messages/unread-count', requireUser, async (_req, res, next) => {
   try {
-    const clerkUserId = res.locals.clerkUserId as string;
-    const user = await prisma.user.findUnique({ where: { clerkId: clerkUserId }, select: { id: true } });
+    const user = await prisma.user.findUnique({ where: { id: res.locals.userId as string }, select: { id: true } });
     if (!user) {
       res.status(404).json({ error: 'Profile not found.' });
       return;
@@ -2396,11 +2598,23 @@ app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) 
     res.status(502).json({ error: 'Cloudinary could not store the room photo. Check the server log and try again.' });
     return;
   }
+  if (error instanceof Error && error.message === 'Please wait before requesting another code.') {
+    res.status(429).json({ error: error.message, code: 'OTP_COOLDOWN' });
+    return;
+  }
+  if (error instanceof Error && error.message === 'Email delivery failed.') {
+    res.status(503).json({ error: 'We could not deliver the email. Please try again later.', code: 'EMAIL_DELIVERY_FAILED' });
+    return;
+  }
   res.status(500).json({ error: 'Unexpected server error.' });
 });
 
-httpServer.listen(port, () => {
-  logger.info({ port }, 'RentReel API and Socket.IO listening');
+httpServer.listen(port, '0.0.0.0', () => {
+  logger.info({
+    port,
+    resendApiKeyConfigured: Boolean(env.RESEND_API_KEY),
+    resendFromEmailConfigured: Boolean(env.RESEND_FROM_EMAIL),
+  }, 'RentReel API and Socket.IO listening');
 });
 
 let shuttingDown = false;

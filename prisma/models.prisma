@@ -1,40 +1,95 @@
 model User {
-  id                 String                 @id @default(uuid()) @db.Uuid
-  clerkId            String                 @unique
-  username           String                 @unique
-  name               String
-  email              String
-  avatar             String                 @default("")
-  bio                String                 @default("")
-  city               String                 @default("")
-  locationArea       String                 @default("")
-  occupation         String?
-  instituteOrCompany String?
-  activeRole         String                 @default("TENANT")
-  isVerified         Boolean                @default(false)
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
-  lastSeenAt         DateTime?
-  posts              Post[]
-  reels              Reel[]
-  comments           Comment[]
-  likes              Like[]
-  following          Follow[]               @relation("Following")
-  followers          Follow[]               @relation("Followers")
-  roommateProfile    RoommateProfile?
-  rooms              Room[]
-  savedRooms         SavedRoom[]
-  sentInquiries      RoomInquiry[]          @relation("InquiryRequester")
-  receivedInquiries  RoomInquiry[]          @relation("InquiryOwner")
-  conversationLinks  ConversationParticipant[]
-  sentMessages       Message[]              @relation("SentMessages")
-  receivedMessages   Message[]              @relation("ReceivedMessages")
-  notifications      Notification[]
-  reports            Report[]
-  mediaUploads       MediaUpload[]
+  id                  String                    @id @default(uuid()) @db.Uuid
+  clerkId             String?                   @unique
+  username            String                    @unique
+  name                String
+  email               String
+  passwordHash        String?
+  emailVerifiedAt     DateTime?
+  authVersion         Int                       @default(0)
+  avatar              String                    @default("")
+  bio                 String                    @default("")
+  city                String                    @default("")
+  locationArea        String                    @default("")
+  occupation          String?
+  instituteOrCompany  String?
+  activeRole          String                    @default("TENANT")
+  isVerified          Boolean                   @default(false)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  lastSeenAt          DateTime?
+  posts               Post[]
+  reels               Reel[]
+  comments            Comment[]
+  likes               Like[]
+  following           Follow[]                  @relation("Following")
+  followers           Follow[]                  @relation("Followers")
+  roommateProfile     RoommateProfile?
+  rooms               Room[]
+  savedRooms          SavedRoom[]
+  sentInquiries       RoomInquiry[]             @relation("InquiryRequester")
+  receivedInquiries   RoomInquiry[]             @relation("InquiryOwner")
+  conversationLinks   ConversationParticipant[]
+  sentMessages        Message[]                 @relation("SentMessages")
+  receivedMessages    Message[]                 @relation("ReceivedMessages")
+  notifications       Notification[]
+  reports             Report[]
+  mediaUploads        MediaUpload[]
+  refreshSessions     RefreshSession[]
+  emailOtps           EmailOtp[]
+  passwordResetGrants PasswordResetGrant[]
 
+  @@unique([email])
   @@index([createdAt, id])
   @@index([lastSeenAt])
+  @@schema("rentreel")
+}
+
+model EmailOtp {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  purpose    String    @db.VarChar(30)
+  otpHash    String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  lastSentAt DateTime
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@schema("rentreel")
+}
+
+model RefreshSession {
+  id           String           @id @default(uuid()) @db.Uuid
+  userId       String           @db.Uuid
+  tokenHash    String           @unique
+  familyId     String           @db.Uuid
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?          @db.Uuid
+  userAgent    String?          @db.VarChar(500)
+  ip           String?          @db.VarChar(64)
+  createdAt    DateTime         @default(now())
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replacedBy   RefreshSession?  @relation("RefreshRotation", fields: [replacedById], references: [id])
+  replaces     RefreshSession[] @relation("RefreshRotation")
+
+  @@index([userId, expiresAt])
+  @@index([familyId])
+  @@schema("rentreel")
+}
+
+model PasswordResetGrant {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  grantHash  String    @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
   @@schema("rentreel")
 }
 
@@ -59,22 +114,22 @@ model Post {
 }
 
 model Reel {
-  id         String      @id @default(uuid()) @db.Uuid
-  authorId   String      @db.Uuid
-  caption    String      @db.VarChar(2200)
-  location   String      @default("") @db.VarChar(120)
-  videoUrl   String
-  publicId   String
-  coverUrl   String?
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  author     User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  likes      Like[]
-  comments   Comment[]
+  id        String    @id @default(uuid()) @db.Uuid
+  authorId  String    @db.Uuid
+  caption   String    @db.VarChar(2200)
+  location  String    @default("") @db.VarChar(120)
+  videoUrl  String
+  publicId  String
+  coverUrl  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  likes     Like[]
+  comments  Comment[]
 
+  @@unique([publicId])
   @@index([authorId, createdAt, id])
   @@index([createdAt, id])
-  @@unique([publicId])
   @@schema("rentreel")
 }
 
@@ -113,16 +168,16 @@ model Like {
 }
 
 model MediaUpload {
-  id           String   @id @default(uuid()) @db.Uuid
-  ownerId      String   @db.Uuid
-  publicId     String   @unique
-  resourceType String   @db.VarChar(10)
-  mimeType     String   @db.VarChar(80)
+  id           String    @id @default(uuid()) @db.Uuid
+  ownerId      String    @db.Uuid
+  publicId     String    @unique
+  resourceType String    @db.VarChar(10)
+  mimeType     String    @db.VarChar(80)
   fileSize     Int
   expiresAt    DateTime
   attachedAt   DateTime?
-  createdAt    DateTime @default(now())
-  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
+  owner        User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([ownerId, expiresAt])
   @@schema("rentreel")
@@ -142,21 +197,21 @@ model Follow {
 }
 
 model Room {
-  id          String      @id @default(uuid()) @db.Uuid
-  ownerId     String      @db.Uuid
-  title       String      @db.VarChar(160)
-  description String      @db.VarChar(2200)
-  city        String      @db.VarChar(120)
-  area        String      @db.VarChar(160)
-  fullAddress String      @default("")
-  amenities   String[]    @default([])
+  id          String        @id @default(uuid()) @db.Uuid
+  ownerId     String        @db.Uuid
+  title       String        @db.VarChar(160)
+  description String        @db.VarChar(2200)
+  city        String        @db.VarChar(120)
+  area        String        @db.VarChar(160)
+  fullAddress String        @default("")
+  amenities   String[]      @default([])
   rent        Int
-  roomType    String      @db.VarChar(40)
+  roomType    String        @db.VarChar(40)
   availableAt DateTime?
-  status      String      @default("AVAILABLE") @db.VarChar(20)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  owner       User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  status      String        @default("AVAILABLE") @db.VarChar(20)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   media       RoomMedia[]
   savedBy     SavedRoom[]
   inquiries   RoomInquiry[]
@@ -168,16 +223,16 @@ model Room {
 }
 
 model RoomMedia {
-  id        String   @id @default(uuid()) @db.Uuid
-  roomId    String?  @db.Uuid
-  postId    String?  @db.Uuid
-  url       String
-  publicId  String
-  resourceType String @default("image") @db.VarChar(10)
-  position  Int      @default(0)
-  createdAt DateTime @default(now())
-  room      Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  post      Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  id           String   @id @default(uuid()) @db.Uuid
+  roomId       String?  @db.Uuid
+  postId       String?  @db.Uuid
+  url          String
+  publicId     String
+  resourceType String   @default("image") @db.VarChar(10)
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+  room         Room?    @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  post         Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   @@unique([publicId])
   @@index([roomId, position])
@@ -186,15 +241,15 @@ model RoomMedia {
 }
 
 model RoommateProfile {
-  id          String   @id @default(uuid()) @db.Uuid
-  userId      String   @unique @db.Uuid
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @unique @db.Uuid
   budgetMin   Int?
   budgetMax   Int?
   moveInAt    DateTime?
   preferences Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@schema("rentreel")
 }
@@ -216,17 +271,17 @@ model SavedRoom {
 }
 
 model RoomInquiry {
-  id          String   @id @default(uuid()) @db.Uuid
-  roomId      String   @db.Uuid
-  requesterId String   @db.Uuid
-  ownerId     String   @db.Uuid
-  message     String   @db.VarChar(2200)
-  idempotencyKey String? @unique
-  status      String   @default("PENDING") @db.VarChar(30)
-  createdAt   DateTime @default(now())
-  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  requester   User     @relation("InquiryRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  owner       User     @relation("InquiryOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  id             String   @id @default(uuid()) @db.Uuid
+  roomId         String   @db.Uuid
+  requesterId    String   @db.Uuid
+  ownerId        String   @db.Uuid
+  message        String   @db.VarChar(2200)
+  idempotencyKey String?  @unique
+  status         String   @default("PENDING") @db.VarChar(30)
+  createdAt      DateTime @default(now())
+  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  requester      User     @relation("InquiryRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  owner          User     @relation("InquiryOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([roomId, createdAt, id])
   @@index([requesterId, createdAt, id])

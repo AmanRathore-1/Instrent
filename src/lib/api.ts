@@ -19,53 +19,87 @@ import axios from 'axios';
 
 const BASE_URL = '/api';
 
-type ClerkTokenGetter = () => Promise<string | null>;
+let accessToken: string | null = null;
 
-let clerkTokenGetter: ClerkTokenGetter | null = null;
-
-export function setClerkTokenGetter(getToken: ClerkTokenGetter | null) {
-  clerkTokenGetter = getToken;
+export function setAuthTokens(tokens: { accessToken: string }) {
+  accessToken = tokens.accessToken;
 }
 
-export function getClerkAccessToken(): Promise<string | null> {
-  if (!clerkTokenGetter) {
-    return Promise.reject(new Error('Clerk authentication is not ready.'));
-  }
-  return clerkTokenGetter();
+export function clearAuthTokens() {
+  accessToken = null;
+}
+
+export function notifyAuthExpired() {
+  window.dispatchEvent(new CustomEvent('rentreel-auth-expired'));
+}
+
+export function getAccessToken(): string | null {
+  return accessToken;
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  if (!clerkTokenGetter) {
-    throw new Error('Clerk authentication is not ready. Please sign in and try again.');
-  }
-
-  const token = await clerkTokenGetter();
-  if (!token) {
-    throw new Error('Your Clerk session has expired. Please sign in again.');
-  }
-
-  const headers = new Headers(options?.headers);
-  headers.set('Authorization', `Bearer ${token}`);
-  if (options?.body && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
-  }
-  try {
-    const response = await axios.request<T>({
+  const isPublicAuthEndpoint = url.startsWith('/auth/');
+  const request = async (token: string | null) => {
+    const headers = new Headers(options?.headers);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    if (options?.body && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+    return axios.request<T>({
       url: `${BASE_URL}${url}`,
       method: options?.method || 'GET',
       data: options?.body,
       headers: Object.fromEntries(headers.entries()),
     });
-    return response.data;
+  };
+  try {
+    return (await request(accessToken)).data;
   } catch (error) {
-    if (axios.isAxiosError<{ error?: string }>(error)) {
-      throw new Error(error.response?.data?.error || error.message);
+    if (!isPublicAuthEndpoint && axios.isAxiosError(error) && error.response?.status === 401) {
+      try {
+        const renewed = await axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true });
+        setAuthTokens(renewed.data);
+        return (await request(renewed.data.accessToken)).data;
+      } catch {
+        clearAuthTokens();
+        notifyAuthExpired();
+      }
     }
+    if (axios.isAxiosError<{ error?: string }>(error)) throw new Error(error.response?.data?.error || error.message);
     throw error;
   }
 }
 
+const publicJson = async <T>(url: string, body: unknown) => {
+  try {
+    return (await axios.post<T>(`${BASE_URL}${url}`, body, { withCredentials: true })).data;
+  } catch (error) {
+    if (axios.isAxiosError<{ error?: string; requiresVerification?: boolean }>(error)) {
+      const typed = new Error(error.response?.data?.error || error.message) as Error & { requiresVerification?: boolean };
+      typed.requiresVerification = error.response?.data?.requiresVerification;
+      throw typed;
+    }
+    throw error;
+  }
+};
+
 export const api = {
+  auth: {
+    signup: (data: { email: string; password: string; name: string; username?: string }) => publicJson<{ requiresVerification: boolean; user: User }>('/auth/signup', data),
+    login: (data: { email: string; password: string }) => publicJson<{ accessToken: string; user: User }>('/auth/login', data),
+    verifyEmail: (data: { email: string; code: string }) => publicJson<{ accessToken: string; user: User }>('/auth/verify-email', data),
+    resendVerification: (email: string) => publicJson<{ success: boolean }>('/auth/resend-verification-otp', { email }),
+    forgotPassword: (email: string) => publicJson<{ success: boolean }>('/auth/forgot-password', { email }),
+    verifyResetOtp: (data: { email: string; code: string }) => publicJson<{ grant: string }>('/auth/verify-reset-otp', data),
+    resetPassword: (data: { grant: string; password: string }) => publicJson<{ accessToken: string; user: User }>('/auth/reset-password', data),
+    logout: async () => {
+      await axios.post(`${BASE_URL}/auth/logout`, undefined, { withCredentials: true }).catch(() => undefined);
+      clearAuthTokens();
+    },
+    restore: async () => {
+      const renewed = await axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true });
+      setAuthTokens(renewed.data);
+      return (await axios.get<{ user: User }>(`${BASE_URL}/auth/me`, { headers: { Authorization: `Bearer ${renewed.data.accessToken}` } })).data;
+    },
+  },
   heartbeat: () => fetchJson<{ success: boolean }>('/presence/heartbeat', { method: 'POST' }),
   discoverUsers: (query?: string) => fetchJson<{
     users: Array<User & {

@@ -29,7 +29,7 @@ export interface User {
   locationArea: string;
   occupation?: OccupationType;
   instituteOrCompany?: string;
-  authProvider?: 'CLERK' | 'GOOGLE' | 'LOCAL';
+  authProvider?: 'LOCAL';
   providerSubject?: string;
   followersCount: number;
   followingCount: number;

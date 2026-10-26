@@ -1,5 +1,6 @@
 import { env } from './env.js';
 
 export function isAllowedOrigin(origin?: string): boolean {
-  return !origin || origin === env.CLIENT_URL;
+  const allowedOrigins = (env.ALLOWED_ORIGINS || env.CLIENT_URL).split(',').map((value) => value.trim()).filter(Boolean);
+  return !origin || allowedOrigins.includes(origin);
 }
