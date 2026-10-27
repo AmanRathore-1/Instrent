@@ -1,10 +1,10 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import argon2 from 'argon2';
 import { jwtVerify, SignJWT } from 'jose';
-import nodemailer from 'nodemailer';
 import pino from 'pino';
 import { prisma } from './prisma.js';
 import { env } from './config/env.js';
+import { EmailDeliveryError, sendAuthEmail } from './email.js';
 
 const accessTokenLifetimeSeconds = env.ACCESS_TOKEN_TTL_SECONDS;
 const refreshTokenLifetimeMs = env.REFRESH_TOKEN_TTL_SECONDS * 1000;
@@ -12,17 +12,6 @@ const otpLifetimeMs = env.OTP_TTL_SECONDS * 1000;
 const grantLifetimeMs = 10 * 60 * 1000;
 const maxOtpAttempts = 5;
 const jwtSecret = new TextEncoder().encode(env.JWT_ACCESS_SECRET);
-const smtpTransporter = env.SMTP_HOST
-  ? nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: env.SMTP_SECURE,
-      connectionTimeout: 10_000,
-      greetingTimeout: 10_000,
-      socketTimeout: 15_000,
-      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
-    })
-  : null;
 const otpSecret = Buffer.from(env.OTP_HMAC_SECRET, 'utf8');
 const authLogger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
@@ -35,13 +24,6 @@ export type AuthUser = {
   authVersion: number;
   emailVerifiedAt: Date | null;
 };
-
-export class EmailDeliveryError extends Error {
-  constructor(message = 'Email delivery failed.') {
-    super(message);
-    this.name = 'EmailDeliveryError';
-  }
-}
 
 const hashValue = (value: string) => createHash('sha256').update(value).digest('hex');
 const hashOtp = (userId: string, purpose: AuthPurpose, code: string) =>
@@ -166,15 +148,6 @@ export const rotateRefreshSession = async (
   return { accessToken: await createAccessToken(user), refreshToken: result };
 };
 
-const emailTemplate = (purpose: AuthPurpose, code: string) => {
-  const title = purpose === 'EMAIL_VERIFY' ? 'Verify your RentReel email' : 'Reset your RentReel password';
-  return {
-    subject: title,
-    text: `${title}\n\nYour six-digit code is ${code}.\nIt expires in 10 minutes.\n\nIf you did not request this, you can safely ignore this email.`,
-    html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#18181b"><h1>RentReel</h1><h2>${title}</h2><p>Your six-digit code is:</p><p style="font-size:32px;font-weight:700;letter-spacing:8px">${code}</p><p>This code expires in 10 minutes.</p><p style="color:#71717a">If you did not request this, you can safely ignore this email.</p></div>`,
-  };
-};
-
 export const issueOtp = async (userId: string, purpose: AuthPurpose) => {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
   if (!user) throw new Error('Account not found.');
@@ -187,7 +160,6 @@ export const issueOtp = async (userId: string, purpose: AuthPurpose) => {
     throw new Error('Please wait before requesting another code.');
   }
   const code = String(randomInt(100000, 1_000_000));
-  const email = emailTemplate(purpose, code);
   const now = new Date();
   await prisma.$transaction(async (transaction) => {
     await transaction.emailOtp.updateMany({
@@ -205,21 +177,11 @@ export const issueOtp = async (userId: string, purpose: AuthPurpose) => {
     });
   });
   authLogger.info({ userId, purpose, attempted: true }, 'Attempting OTP email delivery');
-  if (!smtpTransporter || !env.SMTP_FROM_EMAIL) {
-    authLogger.error({ userId, purpose }, 'OTP email delivery is not configured');
-    throw new EmailDeliveryError('Email delivery is not configured.');
-  }
   try {
-    const sent = await smtpTransporter.sendMail({ from: env.SMTP_FROM_EMAIL, to: user.email, ...email });
-    authLogger.info({ userId, purpose, smtpMessageId: sent.messageId }, 'OTP email delivery accepted');
+    await sendAuthEmail(user.email, purpose, code);
+    authLogger.info({ userId, purpose }, 'OTP email delivery accepted');
   } catch (error) {
-    authLogger.error({
-      userId,
-      purpose,
-      smtpErrorName: error instanceof Error ? error.name : 'UnknownError',
-      smtpErrorMessage: error instanceof Error ? error.message : 'Unknown email delivery error',
-    }, 'OTP email delivery failed');
-    throw new EmailDeliveryError();
+    throw error instanceof EmailDeliveryError ? error : new EmailDeliveryError();
   }
 };
 

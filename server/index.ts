@@ -33,7 +33,6 @@ import {
   consumePasswordResetGrant,
   cleanupAuthRecords,
   createPasswordResetGrant,
-  EmailDeliveryError,
   findUserByEmail,
   findAuthUser,
   hashPassword,
@@ -45,6 +44,7 @@ import {
   verifyAccessToken,
   verifyPassword,
 } from './auth.js';
+import { EmailDeliveryError } from './email.js';
 
 const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 const port = env.PORT;
@@ -2677,7 +2677,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) 
   }
   if (error instanceof EmailDeliveryError) {
     if (error.message === 'Email delivery is not configured.') {
-      res.status(503).json({ error: 'Email delivery is not configured. Add the SMTP environment variables and try again.', code: 'EMAIL_DELIVERY_NOT_CONFIGURED' });
+      res.status(503).json({ error: 'Email delivery is not configured. Add URBACKEND_SECRET_KEY and try again.', code: 'EMAIL_DELIVERY_NOT_CONFIGURED' });
       return;
     }
     res.status(503).json({ error: 'We could not deliver the email. Please try again later.', code: 'EMAIL_DELIVERY_FAILED' });
@@ -2689,7 +2689,7 @@ app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) 
 httpServer.listen(port, '0.0.0.0', () => {
   logger.info({
     port,
-    smtpConfigured: Boolean(env.SMTP_HOST && env.SMTP_FROM_EMAIL),
+    emailConfigured: Boolean(env.URBACKEND_SECRET_KEY),
   }, 'RentReel API and Socket.IO listening');
 });
 
