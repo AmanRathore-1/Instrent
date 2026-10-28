@@ -179,7 +179,7 @@ export const ReelsView: React.FC = () => {
     url.hash = `reel=${encodeURIComponent(reel.id)}`;
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'RentReel', text: reel.caption, url: url.toString() });
+        await navigator.share({ title: 'InstRent', text: reel.caption, url: url.toString() });
       } else {
         await navigator.clipboard.writeText(url.toString());
         showToast('Reel link copied.', 'success');
@@ -276,7 +276,7 @@ export const ReelsView: React.FC = () => {
       <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
         <div>
           <h1 className="text-sm font-bold text-white">Room reels</h1>
-          <p className="text-[10px] text-zinc-500">Real room tours shared by RentReel members</p>
+          <p className="text-[10px] text-zinc-500">Real room tours shared by InstRent members</p>
         </div>
         <div className="flex items-center gap-2">
           <button

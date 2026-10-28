@@ -23,7 +23,7 @@ export const Sidebar: React.FC = () => {
             <Building2 className="h-5 w-5 text-white" />
           </span>
           <span className="min-w-0">
-            <span className="block text-xl font-extrabold tracking-tight text-white">RentReel</span>
+            <span className="block text-xl font-extrabold tracking-tight text-white">InstRent</span>
             <span className="block truncate text-[11px] font-medium text-zinc-400">Rooms and roommates</span>
           </span>
         </button>

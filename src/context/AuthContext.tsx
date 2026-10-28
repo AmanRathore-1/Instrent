@@ -37,8 +37,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loading = status === 'loading';
 
   const logout = useCallback(async () => {
-    await api.auth.logout();
     clearAuthTokens();
+    await api.auth.logout();
     clearSessionHint();
     setUser(null);
     setStatus('unauthenticated');
@@ -87,6 +87,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     status,
     login: async (email, password) => {
+      clearAuthTokens();
+      clearSessionHint();
       const result = await api.auth.login({ email, password });
       setAuthTokens(result);
       markSessionActive();
@@ -140,12 +142,12 @@ export function useAuth() {
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
-  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading RentReel...</div>;
+  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading InstRent...</div>;
   return status === 'authenticated' ? children : null;
 }
 
 export function GuestRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
-  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading RentReel...</div>;
+  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading InstRent...</div>;
   return status === 'unauthenticated' ? children : null;
 }

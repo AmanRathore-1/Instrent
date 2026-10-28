@@ -9,7 +9,7 @@ import { AuthProvider, ProtectedRoute, useAuth } from './context/AuthContext.tsx
 
 function Root() {
   const { status, logout } = useAuth();
-  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading RentReel...</div>;
+  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading InstRent...</div>;
   if (status === 'unauthenticated') return <AuthView onAuthenticated={() => undefined} />;
 
   return (

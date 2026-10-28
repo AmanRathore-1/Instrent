@@ -139,6 +139,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use('/uploads', express.static(uploadDirectory, { fallthrough: false, maxAge: '7d' }));
 
 const requireAuth: RequestHandler = (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
   const authorization = req.header('authorization');
   const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
   if (!token) {
@@ -168,12 +169,18 @@ const parseCookie = (header: string | undefined, name: string) =>
 const setRefreshCookie = (res: Response, token: string) => {
   const secure = env.NODE_ENV === 'production' ? '; Secure' : '';
   const sameSite = env.NODE_ENV === 'production' ? 'None' : 'Lax';
-  res.setHeader('Set-Cookie', `${refreshCookieName}=${encodeURIComponent(token)}; Path=/api/auth; HttpOnly; SameSite=${sameSite}; Max-Age=${env.REFRESH_TOKEN_TTL_SECONDS}${secure}`);
+  res.setHeader('Set-Cookie', [
+    `${refreshCookieName}=${encodeURIComponent(token)}; Path=/api/auth; HttpOnly; SameSite=${sameSite}; Max-Age=${env.REFRESH_TOKEN_TTL_SECONDS}${secure}`,
+    `${refreshCookieName}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure}`,
+  ]);
 };
 const clearRefreshCookie = (res: Response) => {
   const secure = env.NODE_ENV === 'production' ? '; Secure' : '';
   const sameSite = env.NODE_ENV === 'production' ? 'None' : 'Lax';
-  res.setHeader('Set-Cookie', `${refreshCookieName}=; Path=/api/auth; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure}`);
+  res.setHeader('Set-Cookie', [
+    `${refreshCookieName}=; Path=/api/auth; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure}`,
+    `${refreshCookieName}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0${secure}`,
+  ]);
 };
 const sameOrigin = (req: Request, res: Response) => {
   const origin = req.header('origin');
@@ -288,8 +295,12 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api/auth', authLimiter);
 
+const normalizedEmailSchema = z.preprocess(
+  (value) => typeof value === 'string' ? value.trim().toLowerCase() : value,
+  z.string().email().max(320),
+);
 const signupSchema = z.object({
-  email: z.string().email().max(320),
+  email: normalizedEmailSchema,
   password: z.string().min(12).max(128),
   name: z.string().trim().min(1).max(120),
   username: z.preprocess(
@@ -298,14 +309,14 @@ const signupSchema = z.object({
   ),
 }).strict();
 const loginSchema = z.object({
-  email: z.string().email().max(320),
+  email: normalizedEmailSchema,
   password: z.string().min(1).max(128),
 }).strict();
 const otpSchema = z.object({
-  email: z.string().email().max(320),
+  email: normalizedEmailSchema,
   code: z.string().regex(/^\d{6}$/),
 }).strict();
-const emailSchema = z.object({ email: z.string().email().max(320) }).strict();
+const emailSchema = z.object({ email: normalizedEmailSchema }).strict();
 const resetGrantSchema = z.object({ grant: z.string().min(30).max(200) }).strict();
 const resetPasswordSchema = resetGrantSchema.extend({ password: z.string().min(12).max(128) }).strict();
 
@@ -604,6 +615,7 @@ app.post('/api/auth/refresh', async (req, res, next) => {
 });
 
 app.get('/api/auth/me', requireAuth, async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const user = await findAuthUser(res.locals.userId as string);
   if (!user) {
     res.status(401).json({ error: 'Authentication required.', code: 'UNAUTHENTICATED' });
@@ -953,6 +965,7 @@ const serializeReel = async (reel: {
 
 const handleCurrentProfile = async (_req: Request, res: Response, next: (error?: unknown) => void) => {
   try {
+    res.setHeader('Cache-Control', 'no-store');
     const user = await prisma.user.findUnique({ where: { id: res.locals.userId as string } });
     if (!user) {
       res.status(404).json({ error: 'Profile not found.' });

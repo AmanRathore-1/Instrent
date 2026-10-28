@@ -301,7 +301,7 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
   return (
     <section className="mx-auto max-w-6xl p-4 pb-24">
       <header className="flex items-center justify-between gap-3">
-        <div><h1 className="text-xl font-black text-white">Rooms for rent</h1><p className="mt-1 text-xs text-zinc-500">Browse real listings from RentReel members.</p></div>
+        <div><h1 className="text-xl font-black text-white">Rooms for rent</h1><p className="mt-1 text-xs text-zinc-500">Browse real listings from InstRent members.</p></div>
         <button onClick={() => setCreateOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white"><Plus className="h-4 w-4" /> List a room</button>
       </header>
       <form onSubmit={(event) => { event.preventDefault(); setAppliedFilters(filters); }} className="mt-5 grid gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3 sm:grid-cols-3 lg:grid-cols-7">

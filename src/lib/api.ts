@@ -22,6 +22,7 @@ const BASE_URL = `${API_URL}/api`;
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string> | null = null;
+let authGeneration = 0;
 const sessionHintKey = 'rentreel-auth-session';
 
 export class ApiError extends Error {
@@ -40,10 +41,12 @@ export class ApiError extends Error {
 }
 
 export function setAuthTokens(tokens: { accessToken: string }) {
+  authGeneration += 1;
   accessToken = tokens.accessToken;
 }
 
 export function clearAuthTokens() {
+  authGeneration += 1;
   accessToken = null;
 }
 
@@ -69,14 +72,16 @@ export function getAccessToken(): string | null {
 
 async function refreshAccessToken() {
   if (!refreshPromise) {
-    refreshPromise = axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true })
+    const generationAtStart = authGeneration;
+    const request = axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true })
       .then((response) => {
-        setAuthTokens(response.data);
+        if (authGeneration === generationAtStart) setAuthTokens(response.data);
         return response.data.accessToken;
-      })
-      .finally(() => {
-        refreshPromise = null;
       });
+    const tracked = request.finally(() => {
+      if (refreshPromise === tracked) refreshPromise = null;
+    });
+    refreshPromise = tracked;
   }
   return refreshPromise;
 }
@@ -137,14 +142,28 @@ const toApiError = (error: unknown) => {
 };
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers,
-    credentials: 'include',
-  });
+  const isPublicAuthEndpoint = path.startsWith('/auth/');
+  const request = (token: string | null) => {
+    const headers = new Headers(init.headers);
+    if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    return fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers,
+      credentials: 'include',
+    });
+  };
+
+  let response = await request(accessToken);
+  if (!isPublicAuthEndpoint && response.status === 401) {
+    try {
+      response = await request(await refreshAccessToken());
+    } catch {
+      clearAuthTokens();
+      notifyAuthExpired();
+      throw new ApiError('Authentication required.', { code: 'UNAUTHENTICATED', status: 401 });
+    }
+  }
   const contentType = response.headers.get('content-type') ?? '';
   const body = contentType.includes('application/json') ? await response.json() : null;
   if (!response.ok) {

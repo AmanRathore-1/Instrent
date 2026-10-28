@@ -532,7 +532,7 @@ export const AppProvider = ({
     return (
       <div className="min-h-screen bg-zinc-950 text-zinc-200 flex items-center justify-center">
         <p className="text-sm">
-          Loading your RentReel account...
+          Loading your InstRent account...
         </p>
       </div>
     );
