@@ -261,7 +261,8 @@ export interface Notification {
     | 'LISTING_EXPIRED'
     | 'LISTING_RENEWED'
     | 'NEW_MESSAGE'
-    | 'INQUIRY'
+    | 'COMMENT'
+    | 'ROOM_INQUIRY'
     | 'VISIT_REQUEST'
     | 'REQUIREMENT_MATCH'
     | 'LIKE'
@@ -319,4 +320,4 @@ export type ActiveView =
   | 'tenant-dashboard'
   | 'admin-dashboard';
 
-  
+
