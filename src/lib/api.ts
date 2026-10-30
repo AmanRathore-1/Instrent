@@ -1,19 +1,15 @@
 import type {
   User,
-  Property,
-  RentalListing,
-  RentalRequirement,
   Reel,
   Post,
   Comment,
-  Review,
   Conversation,
   Message,
   Notification,
-  VisitRequest,
   Report,
   UserRole,
   RentalRoom,
+  MessageContext,
 } from '../types/client.ts';
 import axios from 'axios';
 
@@ -243,14 +239,6 @@ export const api = {
       body: JSON.stringify({ role }),
     }),
 
-  // Feed
-  getFeed: () =>
-    fetchJson<{
-      listings: RentalListing[];
-      reels: Reel[];
-      requirements: RentalRequirement[];
-      posts: Post[];
-    }>('/feed'),
   getRooms: (filters?: Record<string, string>, cursor?: string) => {
     const params = new URLSearchParams(filters);
     if (cursor) params.set('cursor', cursor);
@@ -423,110 +411,6 @@ export const api = {
     }
   },
 
-  // Properties
-  getProperties: (params?: Record<string, string>) => {
-    const query = new URLSearchParams(params).toString();
-    return fetchJson<{ properties: Property[] }>(`/properties${query ? `?${query}` : ''}`);
-  },
-  getPropertyById: (id: string) =>
-    fetchJson<{
-      property: Property;
-      owner: User;
-      rooms: any[];
-      listings: RentalListing[];
-      reels: Reel[];
-      reviews: Review[];
-      isSaved: boolean;
-      isFollowing: boolean;
-    }>(`/properties/${id}`),
-  createProperty: (data: Partial<Property>) =>
-    fetchJson<{ success: boolean; property: Property }>('/properties', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateProperty: (id: string, data: Partial<Property>) =>
-    fetchJson<{ success: boolean; property: Property }>(`/properties/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }),
-  deleteProperty: (id: string) =>
-    fetchJson<{ success: boolean; message: string }>(`/properties/${id}`, {
-      method: 'DELETE',
-    }),
-  getPropertyRooms: (id: string) =>
-    fetchJson<{ rooms: any[] }>(`/properties/${id}/rooms`),
-  addPropertyRoom: (id: string, roomData: any) =>
-    fetchJson<{ success: boolean; room: any }>(`/properties/${id}/rooms`, {
-      method: 'POST',
-      body: JSON.stringify(roomData),
-    }),
-
-  // Listings (with 10-day lifecycle)
-  getListings: (params?: Record<string, string>) => {
-    const query = new URLSearchParams(params).toString();
-    return fetchJson<{ listings: RentalListing[] }>(`/listings${query ? `?${query}` : ''}`);
-  },
-  getListingById: (id: string) =>
-    fetchJson<{
-      listing: RentalListing;
-      owner: User;
-      property: Property;
-      isSaved: boolean;
-    }>(`/listings/${id}`),
-  createListing: (data: Partial<RentalListing>) =>
-    fetchJson<{ success: boolean; listing: RentalListing }>('/listings', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateListing: (id: string, data: Partial<RentalListing>) =>
-    fetchJson<{ success: boolean; listing: RentalListing }>(`/listings/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }),
-  deleteListing: (id: string) =>
-    fetchJson<{ success: boolean; message: string }>(`/listings/${id}`, {
-      method: 'DELETE',
-    }),
-  renewListing: (id: string) =>
-    fetchJson<{ success: boolean; listing: RentalListing; message: string }>(`/listings/${id}/renew`, {
-      method: 'POST',
-    }),
-  markListingRented: (id: string) =>
-    fetchJson<{ success: boolean; listing: RentalListing; message: string }>(`/listings/${id}/mark-rented`, {
-      method: 'POST',
-    }),
-  pauseListing: (id: string) =>
-    fetchJson<{ success: boolean; listing: RentalListing }>(`/listings/${id}/pause`, {
-      method: 'POST',
-    }),
-
-  // Requirements (Tenant discovery)
-  getRequirements: (params?: Record<string, string>) => {
-    const query = new URLSearchParams(params).toString();
-    return fetchJson<{ requirements: RentalRequirement[] }>(`/requirements${query ? `?${query}` : ''}`);
-  },
-  createRequirement: (data: Partial<RentalRequirement>) =>
-    fetchJson<{ success: boolean; requirement: RentalRequirement }>('/requirements', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  deleteRequirement: (id: string) =>
-    fetchJson<{ success: boolean; message: string }>(`/requirements/${id}`, {
-      method: 'DELETE',
-    }),
-  getRequirementMatches: (id: string) =>
-    fetchJson<{
-      requirement: RentalRequirement;
-      matches: Array<{
-        property: Property;
-        listing?: RentalListing;
-        score: number;
-        matchedCriteria: string[];
-        unmatchedCriteria: string[];
-        owner: User;
-      }>;
-    }>(`/requirements/${id}/matches`),
-
   // Reels
   getReels: (cursor?: string) =>
     fetchJson<{ reels: Reel[]; nextCursor: string | null }>(
@@ -567,36 +451,7 @@ export const api = {
   deleteComment: (id: string) =>
     fetchJson<{ success: boolean }>(`/comments/${id}`, { method: 'DELETE' }),
 
-  // Reviews
-  getPropertyReviews: (propertyId: string) =>
-    fetchJson<{ reviews: Review[] }>(`/properties/${propertyId}/reviews`),
-  addPropertyReview: (propertyId: string, data: { rating: number; comment: string }) =>
-    fetchJson<{ success: boolean; review: Review }>(`/properties/${propertyId}/reviews`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-
-  // In-Person Visit Requests
-  getVisitRequests: () => fetchJson<{ visits: VisitRequest[] }>('/visits'),
-  createVisitRequest: (data: {
-    propertyId: string;
-    listingId?: string;
-    ownerId: string;
-    preferredDate: string;
-    preferredTime: string;
-    message?: string;
-  }) =>
-    fetchJson<{ success: boolean; visit: VisitRequest }>('/visits', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
-  updateVisitRequestStatus: (id: string, status: 'ACCEPTED' | 'REJECTED' | 'COMPLETED') =>
-    fetchJson<{ success: boolean; visit: VisitRequest }>(`/visits/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }),
-
-  // Social & Profiles
+  // Posts & Profiles
   getPosts: (userId?: string, cursor?: string) => {
     const params = new URLSearchParams();
     if (userId) params.set('userId', userId);
@@ -631,8 +486,11 @@ export const api = {
     fetchJson<{ success: boolean; post: Post }>('/posts', {
       method: 'POST',
       body: JSON.stringify({
-        ...data,
+        caption: data.caption,
+        location: data.location,
+        publicIds: data.publicIds,
         rent: data.rentAmount,
+        roomType: data.roomType,
       }),
     }),
   deletePost: (id: string) =>
@@ -645,6 +503,7 @@ export const api = {
   updateMyProfile: (
     data: Omit<Partial<Pick<User, 'name' | 'username' | 'bio' | 'city' | 'locationArea' | 'occupation' | 'instituteOrCompany'>>, 'occupation'> & {
       occupation?: User['occupation'] | null;
+      avatarPublicId?: string;
     },
   ) =>
     fetchJson<{ user: User }>('/users/me', {
@@ -666,23 +525,11 @@ export const api = {
     fetchJson<{ success: boolean; isFollowing: boolean; followersCount: number }>(`/users/${userId}/follow`, {
       method: isFollowing ? 'PUT' : 'DELETE',
     }),
-  toggleSave: (targetType: 'listing' | 'property' | 'reel' | 'post', targetId: string) =>
-    fetchJson<{ success: boolean; isSaved: boolean }>('/social/save', {
-      method: 'POST',
-      body: JSON.stringify({ targetType, targetId }),
-    }),
-  getSavedItems: () =>
-    fetchJson<{
-      listings: RentalListing[];
-      properties: Property[];
-      reels: Reel[];
-    }>('/social/saved'),
-
   // Messages
   getUnreadMessageCount: () =>
     fetchJson<{ unreadCount: number }>('/messages/unread-count'),
   getConversations: () => fetchJson<{ conversations: Conversation[] }>('/conversations'),
-  startConversation: (targetUserId: string, context?: any) =>
+  startConversation: (targetUserId: string, context?: MessageContext) =>
     fetchJson<{ conversation: Conversation; otherUser: User }>('/conversations', {
       method: 'POST',
       body: JSON.stringify({ targetUserId, context }),
@@ -700,8 +547,7 @@ export const api = {
     receiverId: string;
     text: string;
     idempotencyKey: string;
-    context?: any;
-    imageUrl?: string;
+    context?: MessageContext;
   }) =>
     fetchJson<{ success: boolean; message: Message }>('/messages', {
       method: 'POST',
@@ -718,35 +564,10 @@ export const api = {
   markAllNotificationsRead: () =>
     fetchJson<{ success: boolean }>('/notifications/mark-all-read', { method: 'POST' }),
 
-  // Search
-  searchGlobal: (query: string, tab = 'all') =>
-    fetchJson<{
-      properties: Property[];
-      listings: RentalListing[];
-      users: User[];
-      reels: Reel[];
-      requirements: RentalRequirement[];
-    }>(`/search?q=${encodeURIComponent(query)}&tab=${tab}`),
-
   // Anti-fraud & Reports
   createReport: (data: { targetType: 'POST' | 'ROOM' | 'USER' | 'REEL'; targetId: string; reason: string; details?: string }) =>
     fetchJson<{ success: boolean; report: Report }>('/reports', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  getAdminReports: () => fetchJson<{ reports: Report[] }>('/admin/reports'),
-  updateReportStatus: (id: string, status: 'RESOLVED' | 'DISMISSED') =>
-    fetchJson<{ success: boolean; report: Report }>(`/admin/reports/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }),
-  verifyUser: (id: string, isVerified = true) =>
-    fetchJson<{ success: boolean; user: User }>(`/admin/verify-user/${id}`, {
-      method: 'POST',
-      body: JSON.stringify({ isVerified }),
-    }),
-
-  // Admin
-  getAdminUsers: () => fetchJson<{ users: User[] }>('/admin/users'),
-  getAdminMetrics: () => fetchJson<any>('/admin/metrics'),
 };

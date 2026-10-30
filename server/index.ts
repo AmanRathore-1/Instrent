@@ -2134,6 +2134,33 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
     }
     const body = req.body as Record<string, unknown>;
     const update: Prisma.UserUpdateInput = {};
+    let avatarAsset: { publicId: string; url: string } | null = null;
+    if (body.avatarPublicId !== undefined) {
+      if (typeof body.avatarPublicId !== 'string' || body.avatarPublicId.length === 0 || body.avatarPublicId.length > 255) {
+        res.status(400).json({ error: 'Provide a valid avatar upload.' });
+        return;
+      }
+      const reservation = await prisma.mediaUpload.findFirst({
+        where: {
+          ownerId: user.id,
+          publicId: body.avatarPublicId,
+          resourceType: 'image',
+          attachedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        select: { id: true, fileSize: true },
+      });
+      if (!reservation) {
+        res.status(403).json({ error: 'This avatar upload is expired, already used, or not yours.' });
+        return;
+      }
+      avatarAsset = await verifyUploadedAsset(
+        body.avatarPublicId,
+        'image',
+        user.id,
+        Math.min(10 * 1024 * 1024, reservation.fileSize),
+      );
+    }
     for (const field of ['name', 'username', 'bio', 'city', 'locationArea', 'occupation', 'instituteOrCompany'] as const) {
       const value = body[field];
       if (typeof value === 'string') {
@@ -2154,7 +2181,29 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
       }
     }
     if (body.occupation === null) update.occupation = null;
-    const updatedUser = await prisma.user.update({ where: { id: user.id }, data: update });
+    const updatedUser = avatarAsset
+      ? await prisma.$transaction(async (transaction) => {
+          const attached = await transaction.mediaUpload.updateMany({
+            where: {
+              ownerId: user.id,
+              publicId: avatarAsset.publicId,
+              resourceType: 'image',
+              attachedAt: null,
+              expiresAt: { gt: new Date() },
+            },
+            data: { attachedAt: new Date() },
+          });
+          if (attached.count !== 1) return null;
+          return transaction.user.update({
+            where: { id: user.id },
+            data: { ...update, avatar: avatarAsset.url },
+          });
+        })
+      : await prisma.user.update({ where: { id: user.id }, data: update });
+    if (!updatedUser) {
+      res.status(409).json({ error: 'This avatar upload was already attached. Please upload it again.' });
+      return;
+    }
     res.json({ user: await serializeUser(updatedUser, user.id) });
   } catch (error) {
     next(error);
@@ -2236,8 +2285,20 @@ app.delete('/api/users/:targetId/follow', requireUser, async (req, res, next) =>
     next(error);
   }
 });
-const asContext = (value: unknown): Prisma.InputJsonValue | undefined =>
-  value && typeof value === 'object' ? value as Prisma.InputJsonValue : undefined;
+const asContext = (value: unknown): Prisma.InputJsonValue | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const context = value as Record<string, unknown>;
+  if (
+    (context.type !== 'ROOM' && context.type !== 'REEL') ||
+    typeof context.id !== 'string' ||
+    context.id.length === 0 ||
+    context.id.length > 100 ||
+    typeof context.title !== 'string' ||
+    context.title.length === 0 ||
+    context.title.length > 200
+  ) return undefined;
+  return { type: context.type, id: context.id, title: context.title };
+};
 
 const conversationInclude = {
   participants: { include: { user: true } },
@@ -2467,13 +2528,9 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
       text: z.string().trim().min(1).max(5000),
       idempotencyKey: z.string().uuid(),
       context: z.object({
-        type: z.enum(['PROPERTY', 'LISTING', 'REEL', 'REQUIREMENT', 'ROOM']),
+        type: z.enum(['REEL', 'ROOM']),
         id: z.string().min(1).max(100),
         title: z.string().min(1).max(200),
-        subtitle: z.string().max(200).optional(),
-        price: z.number().nonnegative().optional(),
-        imageUrl: z.string().url().optional(),
-        location: z.string().max(200).optional(),
       }).optional(),
     });
     const parsed = bodySchema.safeParse(req.body);

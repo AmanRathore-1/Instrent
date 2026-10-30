@@ -389,9 +389,6 @@ export const ReelsView: React.FC = () => {
                   {reel.location}
                 </p>
               )}
-              {reel.rentAmount != null && (
-                <p className="mt-1 text-xs font-semibold text-emerald-300">₹{reel.rentAmount.toLocaleString('en-IN')}/mo</p>
-              )}
               <p className="mt-1 text-[10px] text-zinc-300">{new Date(reel.createdAt).toLocaleDateString()}</p>
             </div>
           </article>

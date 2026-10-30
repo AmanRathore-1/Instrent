@@ -1,17 +1,5 @@
 export type UserRole = 'TENANT' | 'OWNER' | 'PG_HOSTEL' | 'BROKER' | 'ADMIN';
 
-export type PropertyType = 'PG' | 'ROOM' | 'FLAT' | 'HOUSE' | 'HOSTEL' | 'APARTMENT' | 'COLIVING';
-
-export type RoomType = 'SINGLE' | 'DOUBLE' | 'TRIPLE' | '1BHK' | '2BHK' | '3BHK' | 'STUDIO';
-
-export type FurnishingStatus = 'FULLY' | 'SEMI' | 'UNFURNISHED';
-
-export type GenderPreference = 'BOYS' | 'GIRLS' | 'ANY' | 'FAMILY';
-
-export type ListingStatus = 'ACTIVE' | 'EXPIRED' | 'RENTED' | 'PAUSED';
-
-export type RequirementStatus = 'ACTIVE' | 'FULFILLED' | 'CLOSED';
-
 export type OccupationType = 'STUDENT' | 'WORKING_PROFESSIONAL' | 'OTHER';
 
 export interface User {
@@ -59,116 +47,14 @@ export interface RentalRoom {
   updatedAt: string;
 }
 
-export interface Room {
-  id: string;
-  propertyId: string;
-  roomNumber: string;
-  roomType: RoomType;
-  rent: number;
-  deposit: number;
-  furnishing: FurnishingStatus;
-  hasAC: boolean;
-  hasAttachedBath: boolean;
-  hasBalcony: boolean;
-  photos: string[];
-  availableFrom: string;
-  isAvailable: boolean;
-}
-
-export interface Property {
-  id: string;
-  ownerId: string;
-  title: string;
-  description: string;
-  propertyType: PropertyType;
-  city: string;
-  area: string;
-  fullAddress: string;
-  latitude: number;
-  longitude: number;
-  amenities: string[];
-  rules: string[];
-  foodOption?: string;
-  genderPreference: GenderPreference;
-  noBrokerage: boolean;
-  coverPhoto: string;
-  photos: string[];
-  totalRooms: number;
-  availableRooms: number;
-  minRent: number;
-  maxRent: number;
-  rating: number;
-  reviewCount: number;
-  isVerified: boolean;
-  createdAt: string;
-  updatedAt: string;
-  owner?: User;
-  isSaved?: boolean;
-}
-
-export interface RentalListing {
-  id: string;
-  propertyId: string;
-  roomId?: string;
-  ownerId: string;
-  title: string;
-  description: string;
-  rent: number;
-  deposit: number;
-  propertyType: PropertyType;
-  roomType: RoomType;
-  city: string;
-  area: string;
-  photos: string[];
-  amenities: string[];
-  genderPreference: GenderPreference;
-  status: ListingStatus;
-  createdAt: string;
-  expiresAt: string; // 10 days
-  rentedAt?: string;
-  renewedAt?: string;
-  viewsCount: number;
-  inquiriesCount: number;
-  savesCount: number;
-  isFeatured?: boolean;
-  owner?: User;
-  property?: Property;
-  isSaved?: boolean;
-}
-
-export interface RentalRequirement {
-  id: string;
-  tenantId: string;
-  title: string;
-  city: string;
-  preferredAreas: string[];
-  budgetMin: number;
-  budgetMax: number;
-  propertyTypes: PropertyType[];
-  roomTypes: RoomType[];
-  moveInDate: string;
-  occupation: OccupationType;
-  genderPreference: GenderPreference;
-  preferences: string[];
-  description: string;
-  status: RequirementStatus;
-  createdAt: string;
-  viewsCount: number;
-  tenant?: User;
-}
-
 export interface Reel {
   id: string;
   ownerId: string;
-  propertyId?: string;
-  listingId?: string;
   videoUrl: string;
   thumbnailUrl: string;
   caption: string;
   location: string;
-  propertyTitle?: string;
-  rentAmount?: number;
-  category: 'ROOM_TOUR' | 'PG_TOUR' | 'AMENITIES' | 'LOCATION' | 'AVAILABILITY';
+  category: 'ROOM_TOUR';
   likesCount: number;
   commentsCount: number;
   savesCount: number;
@@ -176,7 +62,6 @@ export interface Reel {
   createdAt: string;
   owner?: User;
   isLiked?: boolean;
-  isSaved?: boolean;
 }
 
 export interface Post {
@@ -208,25 +93,10 @@ export interface Comment {
   createdAt: string;
 }
 
-export interface Review {
-  id: string;
-  propertyId: string;
-  userId: string;
-  userName: string;
-  userAvatar: string;
-  rating: number;
-  comment: string;
-  createdAt: string;
-}
-
 export interface MessageContext {
-  type: 'PROPERTY' | 'LISTING' | 'REEL' | 'REQUIREMENT' | 'ROOM';
+  type: 'REEL' | 'ROOM';
   id: string;
   title: string;
-  subtitle?: string;
-  price?: number;
-  imageUrl?: string;
-  location?: string;
 }
 
 export interface Message {
@@ -236,7 +106,6 @@ export interface Message {
   receiverId: string;
   text: string;
   context?: MessageContext;
-  imageUrl?: string;
   idempotencyKey?: string;
   isRead: boolean;
   deliveredAt?: string;
@@ -257,14 +126,9 @@ export interface Notification {
   id: string;
   userId: string;
   type:
-    | 'EXPIRING_SOON'
-    | 'LISTING_EXPIRED'
-    | 'LISTING_RENEWED'
     | 'NEW_MESSAGE'
     | 'COMMENT'
     | 'ROOM_INQUIRY'
-    | 'VISIT_REQUEST'
-    | 'REQUIREMENT_MATCH'
     | 'LIKE'
     | 'NEW_FOLLOWER';
   title: string;
@@ -273,21 +137,6 @@ export interface Notification {
   metadata?: Record<string, any>;
   isRead: boolean;
   createdAt: string;
-}
-
-export interface VisitRequest {
-  id: string;
-  propertyId: string;
-  listingId?: string;
-  tenantId: string;
-  ownerId: string;
-  preferredDate: string;
-  preferredTime: string;
-  message?: string;
-  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COMPLETED';
-  createdAt: string;
-  tenant?: User;
-  property?: Property;
 }
 
 export interface Report {
@@ -309,15 +158,9 @@ export type ActiveView =
   | 'find-property'
   | 'rooms'
   | 'roommates'
-  | 'find-tenants'
   | 'messages'
-  | 'notifications'
   | 'saved'
   | 'settings'
-  | 'property-profile'
-  | 'user-profile'
-  | 'owner-dashboard'
-  | 'tenant-dashboard'
-  | 'admin-dashboard';
+  | 'user-profile';
 
 

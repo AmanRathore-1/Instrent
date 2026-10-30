@@ -48,9 +48,7 @@ interface AppContextType {
     context?: MessageContext
   ) => Promise<void>;
 
-  openPropertyProfile: (propertyId: string) => void;
   openUserProfile: (username: string) => void;
-  openListingDetail: (listingId: string) => void;
   switchUserRole: (role: UserRole) => Promise<void>;
   signOut: () => Promise<void>;
 
@@ -64,21 +62,6 @@ interface AppContextType {
   refreshNotifications: () => Promise<void>;
   refreshUnreadMessages: () => Promise<void>;
   realtimeSocket: Socket | null;
-
-  scheduleVisitData: {
-    isOpen: boolean;
-    propertyId?: string;
-    propertyTitle?: string;
-    ownerId?: string;
-  };
-
-  openScheduleVisit: (
-    propertyId: string,
-    propertyTitle: string,
-    ownerId: string
-  ) => void;
-
-  closeScheduleVisit: () => void;
 
   isNotificationsOpen: boolean;
   openNotifications: () => void;
@@ -126,13 +109,6 @@ export const AppProvider = ({
     useState(false);
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-
-  const [scheduleVisitData, setScheduleVisitData] = useState<{
-    isOpen: boolean;
-    propertyId?: string;
-    propertyTitle?: string;
-    ownerId?: string;
-  }>({ isOpen: false });
 
   const toastTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const userSyncRequest = useRef<Promise<boolean> | null>(null);
@@ -393,23 +369,11 @@ export const AppProvider = ({
     }
   }, [showToast]);
 
-  const openPropertyProfile = useCallback((propertyId: string) => {
-    setViewParams({ propertyId });
-    setActiveView('property-profile');
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
-
   const openUserProfile = useCallback((username: string) => {
     setViewParams({ username, refreshKey: Date.now() });
     setActiveView('user-profile');
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
-
-  const openListingDetail = useCallback((listingId: string) => {
-    setViewParams({ listingId });
-    setActiveView('home');
   }, []);
 
   const switchUserRole = useCallback(async (role: UserRole): Promise<void> => {
@@ -439,23 +403,6 @@ export const AppProvider = ({
     }
   }, [onSignOut, showToast]);
 
-  const openScheduleVisit = useCallback((
-    propertyId: string,
-    propertyTitle: string,
-    ownerId: string
-  ) => {
-    setScheduleVisitData({
-      isOpen: true,
-      propertyId,
-      propertyTitle,
-      ownerId,
-    });
-  }, []);
-
-  const closeScheduleVisit = useCallback(() => {
-    setScheduleVisitData({ isOpen: false });
-  }, []);
-
   const openNotifications = useCallback(() => setIsNotificationsOpen(true), []);
   const closeNotifications = useCallback(() => setIsNotificationsOpen(false), []);
 
@@ -475,9 +422,7 @@ export const AppProvider = ({
     unreadNotificationsCount,
     unreadMessagesCount,
     openChatWith,
-    openPropertyProfile,
     openUserProfile,
-    openListingDetail,
     switchUserRole,
     signOut,
     toasts,
@@ -486,9 +431,6 @@ export const AppProvider = ({
     refreshNotifications,
     refreshUnreadMessages,
     realtimeSocket,
-    scheduleVisitData,
-    openScheduleVisit,
-    closeScheduleVisit,
     isNotificationsOpen,
     openNotifications,
     closeNotifications,
@@ -499,7 +441,6 @@ export const AppProvider = ({
     activeView,
     closeCreateModal,
     closeNotifications,
-    closeScheduleVisit,
     closeSearch,
     createModalTab,
     currentUser,
@@ -509,16 +450,12 @@ export const AppProvider = ({
     openChatWith,
     openCreateModal,
     openNotifications,
-    openPropertyProfile,
-    openScheduleVisit,
     openSearch,
     openUserProfile,
-    openListingDetail,
     realtimeSocket,
     refreshNotifications,
     refreshUnreadMessages,
     refreshUserData,
-    scheduleVisitData,
     showToast,
     signOut,
     switchUserRole,

@@ -30,7 +30,7 @@ export const MessagesView: React.FC<{
   initialConversationId,
   initialContext,
 }) => {
-  const { currentUser, showToast, openPropertyProfile, openScheduleVisit, realtimeSocket, refreshUnreadMessages, setActiveView, setViewParams } = useApp();
+  const { currentUser, showToast, realtimeSocket, refreshUnreadMessages, setActiveView, setViewParams } = useApp();
   const currentUserId = currentUser?.id;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -480,57 +480,33 @@ export const MessagesView: React.FC<{
 
               {/* Header Action Tools */}
               <div className="flex items-center gap-2">
-                {activeContext && (
+                {activeContext?.type === 'ROOM' && (
                   <button
                     onClick={() => {
-                      if (activeContext.type === 'ROOM') {
-                        setViewParams({ roomId: activeContext.id });
-                        setActiveView('rooms');
-                      } else {
-                        openPropertyProfile(activeContext.id);
-                      }
+                      setViewParams({ roomId: activeContext.id });
+                      setActiveView('rooms');
                     }}
                     className="hidden sm:flex items-center gap-1 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-zinc-200"
                   >
-                    <span>{activeContext.type === 'ROOM' ? 'View Room' : 'View Property'}</span>
+                    <span>View Room</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
             </div>
 
-            {/* ATTACHED PROPERTY CONTEXT BANNER (RULE 10) */}
+            {/* Conversation context */}
             {activeContext && (
               <div className="bg-zinc-950/90 border-b border-zinc-800 p-3 flex items-center justify-between gap-3 animate-in fade-in">
                 <div className="flex items-center gap-3 truncate">
-                  {activeContext.imageUrl && (
-                    <img
-                      src={activeContext.imageUrl}
-                      alt={activeContext.title}
-                      className="w-12 h-12 rounded-xl object-cover flex-shrink-0"
-                    />
-                  )}
                   <div className="truncate">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400">
                       Inquiring About {activeContext.type}
                     </span>
                     <h4 className="text-xs font-bold text-white truncate">{activeContext.title}</h4>
-                    {activeContext.price && (
-                      <p className="text-xs font-extrabold text-emerald-400">
-                        ₹{activeContext.price.toLocaleString('en-IN')}/mo
-                      </p>
-                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {activeContext.type !== 'ROOM' && <button
-                    onClick={() => openScheduleVisit(activeContext.id, activeContext.title, activeOtherUser.id)}
-                    className="px-3 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 rounded-xl text-xs font-bold transition-colors"
-                  >
-                    Schedule Visit
-                  </button>}
-                </div>
               </div>
             )}
 

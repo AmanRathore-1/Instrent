@@ -1,9 +1,32 @@
-import React from 'react';
-import { LogOut, UserRound } from 'lucide-react';
+import React, { useState } from 'react';
+import { Camera, LogOut, UserRound } from 'lucide-react';
+import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 
 export const SettingsView: React.FC = () => {
-  const { currentUser, openUserProfile, signOut } = useApp();
+  const { currentUser, openUserProfile, signOut, refreshUserData, showToast } = useApp();
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+
+  const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setIsUploadingAvatar(true);
+    setAvatarUploadProgress(0);
+    try {
+      const uploaded = await api.uploadMedia(file, 'image', setAvatarUploadProgress);
+      await api.updateMyProfile({ avatarPublicId: uploaded.publicId });
+      await refreshUserData();
+      showToast('Profile photo updated.', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not update profile photo.', 'error');
+    } finally {
+      setIsUploadingAvatar(false);
+      setAvatarUploadProgress(0);
+    }
+  };
 
   return (
     <section className="mx-auto max-w-2xl px-4 py-8 pb-24">
@@ -22,6 +45,17 @@ export const SettingsView: React.FC = () => {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-white">{currentUser.name}</p>
             <p className="truncate text-xs text-zinc-400">@{currentUser.username}</p>
+            <label className="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-200 hover:bg-zinc-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
+              <Camera className="h-3.5 w-3.5" />
+              {isUploadingAvatar ? `Uploading ${avatarUploadProgress}%` : 'Change photo'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/avif"
+                disabled={isUploadingAvatar}
+                onChange={(event) => void handleAvatarChange(event)}
+                className="sr-only"
+              />
+            </label>
           </div>
           <button
             onClick={() => openUserProfile(currentUser.username)}

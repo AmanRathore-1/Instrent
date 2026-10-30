@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   X,
   Bell,
@@ -16,14 +16,14 @@ interface NotificationsDrawerProps {
 }
 
 export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen, onClose }) => {
-  const { showToast, refreshNotifications } = useApp();
+  const { showToast, refreshNotifications, realtimeSocket } = useApp();
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
 
-  const fetchNotifs = async (cursor?: string) => {
+  const fetchNotifs = useCallback(async (cursor?: string) => {
     if (!cursor) {
       setLoading(true);
       setError('');
@@ -37,13 +37,17 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    if (isOpen) {
-      fetchNotifs();
-    }
-  }, [isOpen]);
+    if (!isOpen) return;
+    void fetchNotifs();
+    const handleNewNotification = () => void fetchNotifs();
+    realtimeSocket?.on('notification:new', handleNewNotification);
+    return () => {
+      realtimeSocket?.off('notification:new', handleNewNotification);
+    };
+  }, [fetchNotifs, isOpen, realtimeSocket]);
 
   const handleMarkAllRead = async () => {
     try {
