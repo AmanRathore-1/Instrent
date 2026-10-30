@@ -1,6 +1,5 @@
 model User {
   id                  String                    @id @default(uuid()) @db.Uuid
-  clerkId             String?                   @unique
   username            String                    @unique
   name                String
   email               String
@@ -366,14 +365,5 @@ model Report {
   @@index([reporterId, createdAt, id])
   @@index([targetType, targetId])
   @@index([status, createdAt])
-  @@schema("rentreel")
-}
-
-model WebhookEvent {
-  id        String   @id @default(uuid()) @db.Uuid
-  eventId   String   @unique
-  eventType String   @db.VarChar(100)
-  createdAt DateTime @default(now())
-
   @@schema("rentreel")
 }

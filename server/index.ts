@@ -27,7 +27,6 @@ import {
 } from './cloudinary.js';
 import { persistThenPublish } from './modules/social/service.js';
 import { createRoomRouter } from './modules/rooms/routes.js';
-import { shouldSyncLegacyUserProfile, syncLegacyMessage, syncLegacyMessageStatus, syncLegacyNotification, syncLegacyNotificationStatus } from './legacy-sync.js';
 import {
   consumeOtp,
   consumePasswordResetGrant,
@@ -373,7 +372,6 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
     }
     const user = await prisma.user.create({
       data: {
-        clerkId: null,
         email,
         name: parsed.data.name,
         username,
@@ -682,7 +680,6 @@ app.patch('/api/notifications/:notificationId/read', requireUser, async (req, re
       res.status(404).json({ error: 'Notification not found.' });
       return;
     }
-    await syncLegacyNotificationStatus(prisma, notificationId, true);
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -701,11 +698,6 @@ app.post('/api/notifications/mark-all-read', requireUser, async (req, res, next)
       where: { userId: user.id, isRead: false },
       data: { isRead: true },
     });
-    await prisma.$executeRaw`
-      UPDATE "public"."Notification"
-      SET "isRead" = true
-      WHERE "userId" = (SELECT "id" FROM "public"."UserProfile" WHERE "clerkUserId" = (SELECT "clerkId" FROM "rentreel"."User" WHERE "id" = CAST(${res.locals.userId as string} AS uuid)))
-    `;
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -853,57 +845,6 @@ const findSignedInUser = async (req: Request, res: Response) => {
   return prisma.user.findUnique({ where: { id: userId } });
 };
 
-const syncLegacyUserProfile = async (user: DbUser) => {
-  if (!shouldSyncLegacyUserProfile(user.clerkId)) return;
-  const [followersCount, followingCount] = await Promise.all([
-    prisma.follow.count({ where: { followedId: user.id } }),
-    prisma.follow.count({ where: { followerId: user.id } }),
-  ]);
-  await prisma.$executeRaw`
-    INSERT INTO "public"."UserProfile"
-      ("id", "clerkUserId", "username", "email", "name", "avatar", "bio",
-       "roles", "activeRole", "city", "locationArea", "authProvider",
-       "providerSubject", "isVerified", "followersCount", "followingCount",
-       "createdAt", "updatedAt")
-    VALUES
-      (${user.id}, ${user.clerkId}, ${user.username}, ${user.email}, ${user.name},
-       ${user.avatar}, ${user.bio}, ARRAY[${user.activeRole}]::text[], ${user.activeRole},
-       ${user.city}, ${user.locationArea}, 'LOCAL', ${user.clerkId}, ${user.isVerified},
-       ${followersCount}, ${followingCount}, ${user.createdAt}, ${user.updatedAt})
-    ON CONFLICT ("clerkUserId") DO UPDATE SET
-      "username" = EXCLUDED."username",
-      "email" = EXCLUDED."email",
-      "name" = EXCLUDED."name",
-      "avatar" = EXCLUDED."avatar",
-      "bio" = EXCLUDED."bio",
-      "roles" = EXCLUDED."roles",
-      "activeRole" = EXCLUDED."activeRole",
-      "city" = EXCLUDED."city",
-      "locationArea" = EXCLUDED."locationArea",
-      "providerSubject" = EXCLUDED."providerSubject",
-      "isVerified" = EXCLUDED."isVerified",
-      "followersCount" = EXCLUDED."followersCount",
-      "followingCount" = EXCLUDED."followingCount",
-      "updatedAt" = EXCLUDED."updatedAt"
-  `;
-};
-
-const syncLegacyUserCounts = async (userId: string) => {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { clerkId: true } });
-  if (!user) return;
-  const [followersCount, followingCount] = await Promise.all([
-    prisma.follow.count({ where: { followedId: userId } }),
-    prisma.follow.count({ where: { followerId: userId } }),
-  ]);
-  await prisma.$executeRaw`
-    UPDATE "public"."UserProfile"
-    SET "followersCount" = ${followersCount},
-        "followingCount" = ${followingCount},
-        "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "clerkUserId" = ${user.clerkId}
-  `;
-};
-
 const serializePost = async (post: {
   id: string;
   authorId: string;
@@ -971,7 +912,6 @@ const handleCurrentProfile = async (_req: Request, res: Response, next: (error?:
       res.status(404).json({ error: 'Profile not found.' });
       return;
     }
-    await syncLegacyUserProfile(user);
 
     res.json({ user: await serializeUser(user, user.id) });
   } catch (error) {
@@ -2215,7 +2155,6 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
     }
     if (body.occupation === null) update.occupation = null;
     const updatedUser = await prisma.user.update({ where: { id: user.id }, data: update });
-    await syncLegacyUserProfile(updatedUser);
     res.json({ user: await serializeUser(updatedUser, user.id) });
   } catch (error) {
     next(error);
@@ -2252,7 +2191,7 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
         where: { followerId_followedId: { followerId: user.id, followedId: targetId } },
         select: { id: true },
       });
-      const notification = await prisma.notification.create({
+      await prisma.notification.create({
         data: {
           userId: targetId,
           type: 'NEW_FOLLOWER',
@@ -2262,11 +2201,9 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
           dedupeKey: `follow:${follow.id}`,
         },
       });
-      await syncLegacyNotification(prisma, notification);
       io.to(`user:${targetId}`).emit('notification:new');
     }
     const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
-    await Promise.all([syncLegacyUserCounts(user.id), syncLegacyUserCounts(targetId)]);
     io.to(`user:${targetId}`).emit('profile:followers-changed', { followersCount });
     res.json({ success: true, isFollowing: true, followersCount });
   } catch (error) {
@@ -2293,7 +2230,6 @@ app.delete('/api/users/:targetId/follow', requireUser, async (req, res, next) =>
     }
     await prisma.follow.deleteMany({ where: { followerId: user.id, followedId: targetId } });
     const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
-    await Promise.all([syncLegacyUserCounts(user.id), syncLegacyUserCounts(targetId)]);
     io.to(`user:${targetId}`).emit('profile:followers-changed', { followersCount });
     res.json({ success: true, isFollowing: false, followersCount });
   } catch (error) {
@@ -2443,9 +2379,6 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
       },
       data: { isRead: true },
     });
-    for (const message of unreadMessages) {
-      await syncLegacyMessageStatus(prisma, { id: message.id, isRead: true });
-    }
     if (readResult.count > 0) {
       io.to(`user:${user.id}`).emit('conversation:read', {
         conversationId: membership.conversation.id,
@@ -2619,11 +2552,6 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
         io.to(`user:${receiverId}`).emit('conversation:changed', { conversationId });
       },
     );
-    const notification = await prisma.notification.findUnique({
-      where: { dedupeKey: `message:${message.id}` },
-    });
-    await syncLegacyMessage(prisma, message);
-    if (notification) await syncLegacyNotification(prisma, notification);
     const serializedMessage = {
       id: message.id,
       conversationId: message.conversationId,

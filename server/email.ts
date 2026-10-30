@@ -3,7 +3,7 @@ import pino from 'pino';
 import { env } from './config/env.js';
 
 const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
-const client = env.URBACKEND_SECRET_KEY ? urBackend({ apiKey: env.URBACKEND_SECRET_KEY }) : null;
+const client = urBackend({ apiKey: env.URBACKEND_SECRET_KEY });
 
 export class EmailDeliveryError extends Error {
   constructor(message = 'Email delivery failed.') {

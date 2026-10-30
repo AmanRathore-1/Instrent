@@ -10,14 +10,12 @@ const envSchema = z.object({
   APP_URL: z.string().url().optional(),
   CLIENT_URL: z.string().url(),
   ALLOWED_ORIGINS: z.string().default(''),
-  JWT_ACCESS_SECRET: z.string().min(32).optional(),
-  JWT_SECRET: z.string().min(32).optional(),
-  OTP_HMAC_SECRET: z.string().min(32).optional(),
-  AUTH_OTP_SECRET: z.string().min(32).optional(),
+  JWT_ACCESS_SECRET: z.string().min(32),
+  OTP_HMAC_SECRET: z.string().min(32),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   REFRESH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(3600).max(2_592_000).default(2_592_000),
   OTP_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
-  URBACKEND_SECRET_KEY: z.string().min(1).optional(),
+  URBACKEND_SECRET_KEY: z.string().min(1),
   CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
   CLOUDINARY_API_KEY: z.string().min(1).optional(),
   CLOUDINARY_API_SECRET: z.string().min(1).optional(),
@@ -32,18 +30,4 @@ if (!parsed.success) {
   );
 }
 
-if (parsed.data.NODE_ENV === 'production' && !parsed.data.JWT_ACCESS_SECRET && !parsed.data.JWT_SECRET) {
-  throw new Error('Invalid server environment. Add JWT_ACCESS_SECRET to the root .env file.');
-}
-if (parsed.data.NODE_ENV === 'production' && !parsed.data.OTP_HMAC_SECRET && !parsed.data.AUTH_OTP_SECRET) {
-  throw new Error('Invalid server environment. Add OTP_HMAC_SECRET to the root .env file.');
-}
-if (parsed.data.NODE_ENV === 'production' && !parsed.data.URBACKEND_SECRET_KEY) {
-  throw new Error('Invalid server environment. Add URBACKEND_SECRET_KEY to the root .env file.');
-}
-
-export const env = {
-  ...parsed.data,
-  JWT_ACCESS_SECRET: parsed.data.JWT_ACCESS_SECRET || parsed.data.JWT_SECRET || 'development-only-jwt-secret-change-me-32',
-  OTP_HMAC_SECRET: parsed.data.OTP_HMAC_SECRET || parsed.data.AUTH_OTP_SECRET || 'development-only-otp-secret-change-me-32',
-};
+export const env = parsed.data;

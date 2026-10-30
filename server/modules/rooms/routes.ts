@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { verifyUploadedAsset, deleteCloudinaryAssets } from '../../cloudinary.js';
 import { canManageRoom, canViewRoomAddress } from './authorization.js';
 import { roomCreateSchema, roomSearchSchema, roomUpdateSchema, roommateProfileSchema, roommateSearchSchema } from './validation.js';
-import { deleteLegacyRoom, syncLegacyRoom } from '../../legacy-sync.js';
 
 type RoomRoutesDependencies = {
   prisma: PrismaClient;
@@ -331,7 +330,6 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         }
         return created;
       });
-      await syncLegacyRoom(prisma, room);
       res.status(201).json({ success: true, room: publicRoom(room, viewer.id) });
     } catch (error) {
       next(error);
@@ -436,7 +434,6 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
           resourceType: asset.resourceType === 'video' ? 'video' as const : 'image' as const,
         })));
       }
-      await syncLegacyRoom(prisma, room);
       res.json({ success: true, room: publicRoom(room, viewer.id) });
     } catch (error) {
       next(error);
@@ -468,7 +465,6 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         await transaction.room.delete({ where: { id: roomId } });
         await transaction.mediaUpload.deleteMany({ where: { publicId: { in: room.media.map((asset) => asset.publicId) } } });
       });
-      await deleteLegacyRoom(prisma, roomId);
       res.json({ success: true });
     } catch (error) {
       next(error);

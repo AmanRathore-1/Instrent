@@ -18,7 +18,7 @@ npm install
 
 RentReel uses email/password accounts with six-digit email verification and password-reset codes delivered through SMTP with Nodemailer. Access tokens are short-lived JWTs held in browser memory; refresh tokens are opaque, stored hashed in PostgreSQL, rotated on every refresh, and sent only as an HttpOnly cookie. The access token is sent to the API and Socket.IO over HTTPS.
 
-Configure `DATABASE_URL`, `DIRECT_URL`, `CLIENT_URL`, `ALLOWED_ORIGINS`, `JWT_ACCESS_SECRET`, `OTP_HMAC_SECRET`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL` in `.env`. Generate separate strong secrets with `openssl rand -base64 48`. Refresh tokens are opaque, so `JWT_REFRESH_SECRET` is not used. Optional Cloudinary variables are required together for room photo uploads; without them, the API reports that uploads are unavailable. Keep `.env` private; it is ignored by Git.
+Configure `DATABASE_URL`, `DIRECT_URL`, `CLIENT_URL`, `ALLOWED_ORIGINS`, `JWT_ACCESS_SECRET`, `OTP_HMAC_SECRET`, `URBACKEND_SECRET_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL` in `.env`. Generate separate strong secrets with `openssl rand -base64 48`. Optional Cloudinary variables are required together for room photo uploads; without them, the API reports that uploads are unavailable. Keep `.env` private; it is ignored by Git.
 
 ## Initialize the database
 

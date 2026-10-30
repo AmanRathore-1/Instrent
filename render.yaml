@@ -2,6 +2,9 @@ services:
   - type: web
     name: instrent
     runtime: node
+    envVars:
+      - key: NODE_ENV
+        value: production
     buildCommand: npm ci && npm run build
     startCommand: npm run start:server:prod
     healthCheckPath: /api/health

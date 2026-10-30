@@ -11,7 +11,7 @@
     "start": "node dist-server/index.js",
     "start:server": "tsx server/index.ts",
     "start:server:prod": "node dist-server/index.js",
-    "test": "tsx --test server/auth.test.ts server/legacy-sync.test.ts server/modules/social/service.test.ts server/modules/rooms/rooms.test.ts",
+    "test": "tsx --test server/auth.test.ts server/modules/social/service.test.ts server/modules/rooms/rooms.test.ts",
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
