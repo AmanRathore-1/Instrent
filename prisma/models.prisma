@@ -1,3 +1,12 @@
+enum VisitRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+
+  @@schema("rentreel")
+}
+
 model User {
   id                  String                    @id @default(uuid()) @db.Uuid
   username            String                    @unique
@@ -28,6 +37,8 @@ model User {
   savedRooms          SavedRoom[]
   sentInquiries       RoomInquiry[]             @relation("InquiryRequester")
   receivedInquiries   RoomInquiry[]             @relation("InquiryOwner")
+  requestedVisits     VisitRequest[]            @relation("VisitRequester")
+  ownedVisits         VisitRequest[]            @relation("VisitOwner")
   conversationLinks   ConversationParticipant[]
   sentMessages        Message[]                 @relation("SentMessages")
   receivedMessages    Message[]                 @relation("ReceivedMessages")
@@ -196,27 +207,28 @@ model Follow {
 }
 
 model Room {
-  id          String        @id @default(uuid()) @db.Uuid
-  ownerId     String        @db.Uuid
-  title       String        @db.VarChar(160)
-  description String        @db.VarChar(2200)
-  city        String        @db.VarChar(120)
-  area        String        @db.VarChar(160)
-  fullAddress String        @default("")
-  amenities   String[]      @default([])
-  rent        Int
-  roomType    String        @db.VarChar(40)
-  availableAt DateTime?
-  status      String        @default("AVAILABLE") @db.VarChar(20)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  media       RoomMedia[]
-  savedBy     SavedRoom[]
-  inquiries   RoomInquiry[]
+  id            String         @id @default(uuid()) @db.Uuid
+  ownerId       String         @db.Uuid
+  title         String         @db.VarChar(160)
+  description   String         @db.VarChar(2200)
+  city          String         @db.VarChar(120)
+  area          String         @db.VarChar(160)
+  fullAddress   String         @default("")
+  amenities     String[]       @default([])
+  rent          Int
+  roomType      String         @db.VarChar(40)
+  availableAt   DateTime?
+  status        String         @default("AVAILABLE") @db.VarChar(20)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  media         RoomMedia[]
+  savedBy       SavedRoom[]
+  inquiries     RoomInquiry[]
+  visitRequests VisitRequest[]
 
   @@index([ownerId, createdAt, id])
-  @@index([city, area, rent])
+  @@index([status, city, area, rent])
   @@index([createdAt, id])
   @@schema("rentreel")
 }
@@ -288,6 +300,26 @@ model RoomInquiry {
   @@schema("rentreel")
 }
 
+model VisitRequest {
+  id          String             @id @default(uuid()) @db.Uuid
+  roomId      String             @db.Uuid
+  requesterId String             @db.Uuid
+  ownerId     String             @db.Uuid
+  scheduledAt DateTime
+  note        String?            @db.VarChar(2200)
+  status      VisitRequestStatus @default(PENDING)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  room        Room               @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  requester   User               @relation("VisitRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  owner       User               @relation("VisitOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, scheduledAt])
+  @@index([requesterId, createdAt])
+  @@index([ownerId, status, scheduledAt])
+  @@schema("rentreel")
+}
+
 model Conversation {
   id            String                    @id @default(uuid()) @db.Uuid
   pairKey       String                    @unique
@@ -331,6 +363,7 @@ model Message {
 
   @@index([conversationId, createdAt, id])
   @@index([receiverId, isRead])
+  @@index([conversationId, receiverId, isRead])
   @@schema("rentreel")
 }
 

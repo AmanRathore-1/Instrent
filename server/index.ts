@@ -1353,7 +1353,7 @@ app.post('/api/reels/:reelId/comments', requireUser, async (req, res, next) => {
           await transaction.notification.create({
             data: {
               userId: reel.authorId,
-              type: 'INQUIRY',
+              type: 'COMMENT',
               title: 'New comment',
               message: `${user.name} commented on your reel.`,
               metadata: { reelId },
@@ -1959,7 +1959,7 @@ app.post('/api/posts/:postId/comments', requireUser, async (req, res, next) => {
         await transaction.notification.create({
           data: {
             userId: post.authorId,
-            type: 'INQUIRY',
+            type: 'COMMENT',
             title: 'New comment',
             message: `${user.name} commented on your room post.`,
             metadata: { postId },
@@ -2327,6 +2327,15 @@ app.post('/api/conversations', requireUser, async (req, res, next) => {
           include: conversationInclude,
         });
         if (!conversation) throw error;
+      }
+    } else {
+      const context = asContext(req.body.context);
+      if (context) {
+        conversation = await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { activeContext: context },
+          include: conversationInclude,
+        });
       }
     }
     io.to(`user:${user.id}`).emit('conversation:changed', { conversationId: conversation.id });

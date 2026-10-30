@@ -175,7 +175,12 @@ const createConversationForRoom = async (
 ) => {
   const pairKey = [viewerId, ownerId].sort().join(':');
   const existing = await prisma.conversation.findUnique({ where: { pairKey } });
-  if (existing) return existing;
+  if (existing) {
+    return prisma.conversation.update({
+      where: { id: existing.id },
+      data: { activeContext: { type: 'ROOM', id: roomId, title: roomTitle } },
+    });
+  }
   try {
     return await prisma.conversation.create({
       data: {
