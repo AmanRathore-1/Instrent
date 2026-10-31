@@ -1,4 +1,5 @@
 import React, { Suspense, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { useApp } from './context/AppContext.tsx';
 import { Sidebar } from './components/layout/Sidebar.tsx';
 import { MobileNav } from './components/layout/MobileNav.tsx';
@@ -121,5 +122,10 @@ const AppContent: React.FC = () => {
 };
 
 export default function App() {
-  return <AppContent />;
+  return (
+    <>
+      <AppContent />
+      <Analytics />
+    </>
+  );
 }
