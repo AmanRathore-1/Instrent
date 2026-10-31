@@ -49,22 +49,26 @@ const PostInteractions = React.memo<{
     post.commentsCount,
   ]);
 
+  const commentsRequestVersion = useRef(0);
   const loadComments = useCallback(async () => {
+    const version = ++commentsRequestVersion.current;
     setCommentsLoading(true);
     setCommentError('');
 
     try {
       const result = await api.getPostComments(post.id);
+      if (version !== commentsRequestVersion.current) return;
       setComments(result.comments);
       setCommentCursor(result.nextCursor);
     } catch (cause) {
+      if (version !== commentsRequestVersion.current) return;
       setCommentError(
         cause instanceof Error
           ? cause.message
           : 'Could not load comments.',
       );
     } finally {
-      setCommentsLoading(false);
+      if (version === commentsRequestVersion.current) setCommentsLoading(false);
     }
   }, [post.id]);
 
@@ -189,12 +193,15 @@ const PostInteractions = React.memo<{
   const loadMoreComments = async () => {
     if (!commentCursor) return;
 
+    const version = ++commentsRequestVersion.current;
     try {
       const result = await api.getPostComments(post.id, commentCursor);
+      if (version !== commentsRequestVersion.current) return;
 
       setComments((items) => [...items, ...result.comments]);
       setCommentCursor(result.nextCursor);
     } catch (cause) {
+      if (version !== commentsRequestVersion.current) return;
       showToast(
         cause instanceof Error
           ? cause.message
@@ -395,16 +402,21 @@ export const FindRoommateView: React.FC<{
   const [category, setCategory] = useState<'all' | 'rooms' | 'roommates' | 'recent'>('all');
 
   const loadMoreMarker = useRef<HTMLDivElement>(null);
+  const postsRequestVersion = useRef(0);
+  const roomsRequestVersion = useRef(0);
 
   const loadPosts = useCallback(async () => {
+    const version = ++postsRequestVersion.current;
     setLoading(true);
     setError('');
 
     try {
       const result = await api.getPosts();
+      if (version !== postsRequestVersion.current) return;
       setPosts(result.posts);
       setNextCursor(result.nextCursor);
     } catch (cause) {
+      if (version !== postsRequestVersion.current) return;
       const message =
         cause instanceof Error
           ? cause.message
@@ -413,14 +425,16 @@ export const FindRoommateView: React.FC<{
       setError(message);
       console.error('Failed to load roommate posts:', cause);
     } finally {
-      setLoading(false);
+      if (version === postsRequestVersion.current) setLoading(false);
     }
   }, []);
 
   const loadRooms = useCallback(async () => {
     if (mode !== 'feed') return;
+    const version = ++roomsRequestVersion.current;
     try {
       const result = await api.getRooms();
+      if (version !== roomsRequestVersion.current) return;
       setRooms(result.rooms);
     } catch (cause) {
       console.error('Failed to load room listings:', cause);
@@ -430,10 +444,12 @@ export const FindRoommateView: React.FC<{
   const loadMorePosts = useCallback(async () => {
     if (!nextCursor || isLoadingMore) return;
 
+    const version = ++postsRequestVersion.current;
     setIsLoadingMore(true);
 
     try {
       const result = await api.getPosts(undefined, nextCursor);
+      if (version !== postsRequestVersion.current) return;
 
       setPosts((current) => {
         const existingIds = new Set(
@@ -450,6 +466,7 @@ export const FindRoommateView: React.FC<{
 
       setNextCursor(result.nextCursor);
     } catch (cause) {
+      if (version !== postsRequestVersion.current) return;
       showToast(
         cause instanceof Error
           ? cause.message

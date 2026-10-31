@@ -2027,11 +2027,8 @@ const serializeConversation = async (conversation: {
   updatedAt: Date;
   participants: Array<{ user: DbUser }>;
   messages: Array<{ text: string; createdAt: Date }>;
-}, currentUserId: string) => {
+}, currentUserId: string, unreadCount: number) => {
   const otherMember = conversation.participants.find((participant) => participant.user.id !== currentUserId);
-  const unreadCount = await prisma.message.count({
-    where: { conversationId: conversation.id, receiverId: currentUserId, isRead: false },
-  });
   return {
     id: conversation.id,
     participants: conversation.participants.map((participant) => participant.user.id),
@@ -2055,9 +2052,19 @@ app.get('/api/conversations', requireUser, async (req, res, next) => {
       include: { conversation: { include: conversationInclude } },
       orderBy: { conversation: { updatedAt: 'desc' } },
     });
+    const unreadGroups = await prisma.message.groupBy({
+      by: ['conversationId'],
+      where: {
+        conversationId: { in: memberships.map(({ conversation }) => conversation.id) },
+        receiverId: user.id,
+        isRead: false,
+      },
+      _count: { _all: true },
+    });
+    const unreadByConversation = new Map(unreadGroups.map((group) => [group.conversationId, group._count._all]));
     res.json({
       conversations: await Promise.all(
-        memberships.map(({ conversation }) => serializeConversation(conversation, user.id)),
+        memberships.map(({ conversation }) => serializeConversation(conversation, user.id, unreadByConversation.get(conversation.id) ?? 0)),
       ),
     });
   } catch (error) {
@@ -2109,7 +2116,7 @@ app.post('/api/conversations', requireUser, async (req, res, next) => {
     io.to(`user:${user.id}`).emit('conversation:changed', { conversationId: conversation.id });
     io.to(`user:${otherUser.id}`).emit('conversation:changed', { conversationId: conversation.id });
     res.json({
-      conversation: await serializeConversation(conversation, user.id),
+      conversation: await serializeConversation(conversation, user.id, await prisma.message.count({ where: { conversationId: conversation.id, receiverId: user.id, isRead: false } })),
       otherUser: await serializeUser(otherUser),
     });
   } catch (error) {
@@ -2190,8 +2197,11 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
       : null;
     const messages = page.reverse();
     const other = membership.conversation.participants.find((participant) => participant.user.id !== user.id)?.user;
+    const unreadCount = await prisma.message.count({
+      where: { conversationId: membership.conversation.id, receiverId: user.id, isRead: false },
+    });
     res.json({
-      conversation: await serializeConversation(membership.conversation, user.id),
+      conversation: await serializeConversation(membership.conversation, user.id, unreadCount),
       otherUser: other ? await serializeUser(other) : null,
       hasMore,
       nextCursor,

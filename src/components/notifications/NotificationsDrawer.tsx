@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import React, { useState, useEffect } from 'react';
+=======
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+>>>>>>> 90b495c (Phase 5: performance fixes)
 import {
   X,
   Bell,
@@ -22,28 +26,48 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const requestVersion = useRef(0);
 
+<<<<<<< HEAD
   const fetchNotifs = async (cursor?: string) => {
+=======
+  const fetchNotifs = useCallback(async (cursor?: string) => {
+    const version = ++requestVersion.current;
+>>>>>>> 90b495c (Phase 5: performance fixes)
     if (!cursor) {
       setLoading(true);
       setError('');
     }
     try {
       const data = await api.getNotifications(cursor);
+      if (version !== requestVersion.current) return;
       setNotifications((items) => cursor ? [...items, ...data.notifications] : data.notifications);
       setNextCursor(data.nextCursor);
     } catch (cause) {
+      if (version !== requestVersion.current) return;
       setError(cause instanceof Error ? cause.message : 'Could not load notifications.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
 
   useEffect(() => {
+<<<<<<< HEAD
     if (isOpen) {
       fetchNotifs();
     }
   }, [isOpen]);
+=======
+    if (!isOpen) return;
+    void fetchNotifs();
+    const handleNewNotification = () => void fetchNotifs();
+    realtimeSocket?.on('notification:new', handleNewNotification);
+    return () => {
+      requestVersion.current += 1;
+      realtimeSocket?.off('notification:new', handleNewNotification);
+    };
+  }, [fetchNotifs, isOpen, realtimeSocket]);
+>>>>>>> 90b495c (Phase 5: performance fixes)
 
   const handleMarkAllRead = async () => {
     try {

@@ -18,7 +18,7 @@ const receiptPayload = z.object({ messageId: z.string().uuid() });
 const typingTimeoutMs = 3_000;
 
 export function createSocketServer(httpServer: HttpServer): Server {
-  const typingSocketsByRoom = new Map<string, Set<string>>();
+  const typingSocketsByRoom = new Map<string, Map<string, string>>();
 
   const io = new Server(httpServer, {
     cors: {
@@ -133,15 +133,11 @@ export function createSocketServer(httpServer: HttpServer): Server {
         typingTimers.delete(conversationId);
         const typingRoom = `conversation:${conversationId}`;
         const typingSockets = typingSocketsByRoom.get(typingRoom);
-        typingSockets?.delete(socket.id);
+        const wasTyping = typingSockets?.delete(socket.id) ?? false;
         if (typingSockets && typingSockets.size === 0) {
           typingSocketsByRoom.delete(typingRoom);
-          socket.to(typingRoom).emit('conversation:typing', {
-            conversationId,
-            userId,
-            isTyping: false,
-          });
         }
+        if (wasTyping) socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
         joinedConversations.delete(conversationId);
         void socket.leave(`conversation:${parsed.data.conversationId}`);
       }
@@ -158,30 +154,30 @@ export function createSocketServer(httpServer: HttpServer): Server {
         const timer = typingTimers.get(conversationId);
         if (timer) clearTimeout(timer);
         typingTimers.delete(conversationId);
-        typingSockets?.delete(socket.id);
+        const wasTyping = typingSockets?.delete(socket.id) ?? false;
         if (typingSockets && typingSockets.size === 0) {
           typingSocketsByRoom.delete(typingRoom);
-          socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
         }
+        if (wasTyping) socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
         return;
       }
 
       if (!typingSockets) {
-        typingSockets = new Set();
+        typingSockets = new Map();
         typingSocketsByRoom.set(typingRoom, typingSockets);
       }
       const wasTyping = typingSockets.has(socket.id);
-      typingSockets.add(socket.id);
+      typingSockets.set(socket.id, userId);
       const existingTimer = typingTimers.get(conversationId);
       if (existingTimer) clearTimeout(existingTimer);
       const timer = setTimeout(() => {
         typingTimers.delete(conversationId);
         const activeSockets = typingSocketsByRoom.get(typingRoom);
-        activeSockets?.delete(socket.id);
+        const wasTyping = activeSockets?.delete(socket.id) ?? false;
         if (activeSockets && activeSockets.size === 0) {
           typingSocketsByRoom.delete(typingRoom);
-          socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
         }
+        if (wasTyping) socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
       }, typingTimeoutMs);
       typingTimers.set(conversationId, timer);
       if (!wasTyping) {
@@ -266,15 +262,11 @@ export function createSocketServer(httpServer: HttpServer): Server {
         clearTimeout(timer);
         const typingRoom = `conversation:${conversationId}`;
         const typingSockets = typingSocketsByRoom.get(typingRoom);
-        typingSockets?.delete(socket.id);
+        const wasTyping = typingSockets?.delete(socket.id) ?? false;
         if (typingSockets && typingSockets.size === 0) {
           typingSocketsByRoom.delete(typingRoom);
-          socket.to(typingRoom).emit('conversation:typing', {
-            conversationId,
-            userId,
-            isTyping: false,
-          });
         }
+        if (wasTyping) socket.to(typingRoom).emit('conversation:typing', { conversationId, userId, isTyping: false });
       }
       typingTimers.clear();
       void io.in(`user:${userId}`).fetchSockets().then((sockets) => {

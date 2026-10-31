@@ -90,6 +90,11 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+const SessionContext = createContext<{ currentUser: User | null } | undefined>(undefined);
+const ToastContext = createContext<Pick<AppContextType, 'toasts' | 'showToast'> | undefined>(undefined);
+const RealtimeContext = createContext<Pick<AppContextType, 'realtimeSocket'> | undefined>(undefined);
+const NavigationContext = createContext<Pick<AppContextType, 'activeView' | 'setActiveView' | 'viewParams' | 'setViewParams'> | undefined>(undefined);
+const UnreadContext = createContext<Pick<AppContextType, 'unreadNotificationsCount' | 'unreadMessagesCount' | 'refreshNotifications' | 'refreshUnreadMessages'> | undefined>(undefined);
 const realtimeDisconnectWarningDelayMs = 6_000;
 
 export const AppProvider = ({
@@ -120,7 +125,8 @@ export const AppProvider = ({
     useState(0);
 
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-  const [realtimeSocket, setRealtimeSocket] = useState<Socket | null>(null);
+  const realtimeSocketRef = useRef<Socket | null>(null);
+  const [, setRealtimeSocketVersion] = useState(0);
 
   const [toasts, setToasts] = useState<ToastInfo[]>([]);
 
@@ -285,7 +291,8 @@ export const AppProvider = ({
           },
         });
         socket = connectedSocket;
-        setRealtimeSocket(connectedSocket);
+        realtimeSocketRef.current = connectedSocket;
+        setRealtimeSocketVersion((version) => version + 1);
 
         const handleConnect = () => {
           if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
@@ -341,6 +348,8 @@ export const AppProvider = ({
       if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
       teardownSocket();
       socket = null;
+      realtimeSocketRef.current = null;
+      setRealtimeSocketVersion((version) => version + 1);
     };
   }, [currentUserId, refreshNotifications, refreshUnreadMessages, showToast]);
 
@@ -468,10 +477,14 @@ export const AppProvider = ({
     refreshUserData,
     refreshNotifications,
     refreshUnreadMessages,
+<<<<<<< HEAD
     realtimeSocket,
     scheduleVisitData,
     openScheduleVisit,
     closeScheduleVisit,
+=======
+    realtimeSocket: realtimeSocketRef.current,
+>>>>>>> 90b495c (Phase 5: performance fixes)
     isNotificationsOpen,
     openNotifications,
     closeNotifications,
@@ -496,8 +509,11 @@ export const AppProvider = ({
     openScheduleVisit,
     openSearch,
     openUserProfile,
+<<<<<<< HEAD
     openListingDetail,
     realtimeSocket,
+=======
+>>>>>>> 90b495c (Phase 5: performance fixes)
     refreshNotifications,
     refreshUnreadMessages,
     refreshUserData,
@@ -510,6 +526,12 @@ export const AppProvider = ({
     unreadNotificationsCount,
     viewParams,
   ]);
+
+  const sessionValue = useMemo(() => ({ currentUser }), [currentUser]);
+  const toastValue = useMemo(() => ({ toasts, showToast }), [showToast, toasts]);
+  const realtimeValue = useMemo(() => ({ realtimeSocket: realtimeSocketRef.current }), [contextValue.realtimeSocket]);
+  const navigationValue = useMemo(() => ({ activeView, setActiveView, viewParams, setViewParams }), [activeView, viewParams]);
+  const unreadValue = useMemo(() => ({ unreadNotificationsCount, unreadMessagesCount, refreshNotifications, refreshUnreadMessages }), [refreshNotifications, refreshUnreadMessages, unreadMessagesCount, unreadNotificationsCount]);
 
   if (isUserLoading) {
     return (
@@ -563,11 +585,17 @@ export const AppProvider = ({
   }
 
   return (
-    <AppContext.Provider
-      value={contextValue}
-    >
-      {children}
-    </AppContext.Provider>
+    <SessionContext.Provider value={sessionValue}>
+      <ToastContext.Provider value={toastValue}>
+        <RealtimeContext.Provider value={realtimeValue}>
+          <NavigationContext.Provider value={navigationValue}>
+            <UnreadContext.Provider value={unreadValue}>
+              <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>
+            </UnreadContext.Provider>
+          </NavigationContext.Provider>
+        </RealtimeContext.Provider>
+      </ToastContext.Provider>
+    </SessionContext.Provider>
   );
 };
 
@@ -579,4 +607,20 @@ export const useApp = (): AppContextType => {
   }
 
   return context;
+<<<<<<< HEAD
 };
+=======
+};
+
+export const useSession = () => useRequiredContext(SessionContext, 'useSession');
+export const useToasts = () => useRequiredContext(ToastContext, 'useToasts');
+export const useRealtime = () => useRequiredContext(RealtimeContext, 'useRealtime');
+export const useNavigation = () => useRequiredContext(NavigationContext, 'useNavigation');
+export const useUnreadCounts = () => useRequiredContext(UnreadContext, 'useUnreadCounts');
+
+function useRequiredContext<T>(context: React.Context<T | undefined>, name: string): T {
+  const value = useContext(context);
+  if (!value) throw new Error(`${name} must be used within an AppProvider`);
+  return value;
+}
+>>>>>>> 90b495c (Phase 5: performance fixes)

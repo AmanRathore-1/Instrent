@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Search, SlidersHorizontal, Users, X } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
@@ -23,19 +23,21 @@ export const SearchModal: React.FC<{ isOpen: boolean; onClose: () => void }> = (
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [filterError, setFilterError] = useState('');
+  const requestVersion = useRef(0);
 
   useEffect(() => {
     if (!isOpen) return;
+    const version = ++requestVersion.current;
     const timer = window.setTimeout(() => {
       setLoading(true); setError('');
       Promise.all([
         api.getRooms({ q: query.trim(), minRent: appliedMinRent, maxRent: appliedMaxRent, roomType, status }),
         api.discoverUsers(query.trim()),
-      ]).then(([roomResult, userResult]) => { setRooms(roomResult.rooms); setUsers(userResult.users); })
-        .catch((cause) => setError(cause instanceof Error ? cause.message : 'Search is unavailable.'))
-        .finally(() => setLoading(false));
+      ]).then(([roomResult, userResult]) => { if (version === requestVersion.current) { setRooms(roomResult.rooms); setUsers(userResult.users); } })
+        .catch((cause) => { if (version === requestVersion.current) setError(cause instanceof Error ? cause.message : 'Search is unavailable.'); })
+        .finally(() => { if (version === requestVersion.current) setLoading(false); });
     }, 250);
-    return () => window.clearTimeout(timer);
+    return () => { window.clearTimeout(timer); requestVersion.current += 1; };
   }, [isOpen, query, appliedMinRent, appliedMaxRent, roomType, status]);
 
   if (!isOpen) return null;

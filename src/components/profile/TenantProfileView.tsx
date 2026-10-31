@@ -53,6 +53,8 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [connectionsCursor, setConnectionsCursor] = useState<string | null>(null);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
   const showToastRef = useRef(showToast);
+  const profileRequestVersion = useRef(0);
+  const connectionsRequestVersion = useRef(0);
   useEffect(() => {
     showToastRef.current = showToast;
   }, [showToast]);
@@ -61,6 +63,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const isOwnProfile = Boolean(user && currentUser?.id === user.id);
 
   const loadProfile = useCallback(async () => {
+    const version = ++profileRequestVersion.current;
     if (!profileUsername) {
       setUser(null);
       setPosts([]);
@@ -73,18 +76,20 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     setLoadError('');
     try {
       const data = await api.getUserProfile(profileUsername);
+      if (version !== profileRequestVersion.current) return;
       setUser(data.user);
       setPosts(data.posts || []);
       setReels(data.reels || []);
       setIsFollowing(data.isFollowing);
     } catch (cause) {
+      if (version !== profileRequestVersion.current) return;
       console.error('Failed to load profile:', cause);
       setLoadError(cause instanceof Error ? cause.message : 'Could not load this profile.');
       setUser(null);
       setPosts([]);
       setReels([]);
     } finally {
-      setLoading(false);
+      if (version === profileRequestVersion.current) setLoading(false);
     }
   }, [currentUser, profileUsername]);
 
@@ -144,15 +149,18 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
 
   const loadConnections = useCallback(async (cursor?: string) => {
     if (!connectionKind) return;
+    const version = ++connectionsRequestVersion.current;
     setConnectionsLoading(true);
     try {
       const result = await api.getProfileConnections(profileUsername, connectionKind, cursor);
+      if (version !== connectionsRequestVersion.current) return;
       setConnections((items) => cursor ? [...items, ...result.users] : result.users);
       setConnectionsCursor(result.nextCursor);
     } catch (cause) {
+      if (version !== connectionsRequestVersion.current) return;
       showToastRef.current(cause instanceof Error ? cause.message : 'Could not load profile connections.', 'error');
     } finally {
-      setConnectionsLoading(false);
+      if (version === connectionsRequestVersion.current) setConnectionsLoading(false);
     }
   }, [connectionKind, profileUsername]);
 

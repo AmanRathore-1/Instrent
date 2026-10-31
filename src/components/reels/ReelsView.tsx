@@ -44,6 +44,8 @@ export const ReelsView: React.FC = () => {
   const loadingMore = useRef(false);
   const hasLoaded = useRef(false);
   const showToastRef = useRef(showToast);
+  const requestVersion = useRef(0);
+  const commentsRequestVersion = useRef(0);
 
   useEffect(() => {
     showToastRef.current = showToast;
@@ -51,11 +53,13 @@ export const ReelsView: React.FC = () => {
 
   const loadReels = useCallback(async (cursor?: string) => {
     if (cursor && loadingMore.current) return;
+    const version = ++requestVersion.current;
     if (cursor) loadingMore.current = true;
     else if (!hasLoaded.current) setLoading(true);
 
     try {
       const response = await api.getReels(cursor);
+      if (version !== requestVersion.current) return;
       setReels((items) => cursor
         ? [...items, ...response.reels.filter((reel) => !items.some((item) => item.id === reel.id))]
         : response.reels);
@@ -63,12 +67,15 @@ export const ReelsView: React.FC = () => {
       setError('');
       hasLoaded.current = true;
     } catch (cause) {
+      if (version !== requestVersion.current) return;
       const message = cause instanceof Error ? cause.message : 'Could not load reels.';
       if (!cursor && !hasLoaded.current) setError(message);
       else showToastRef.current(message, 'error');
     } finally {
-      setLoading(false);
-      if (cursor) loadingMore.current = false;
+      if (version === requestVersion.current) {
+        setLoading(false);
+        if (cursor) loadingMore.current = false;
+      }
     }
   }, []);
 
@@ -144,14 +151,17 @@ export const ReelsView: React.FC = () => {
   };
 
   const openComments = async (reelId: string) => {
+    const version = ++commentsRequestVersion.current;
     setCommentsReelId(reelId);
     setComments([]);
     setCommentsError('');
     setCommentText('');
     try {
       const result = await api.getReelComments(reelId);
+      if (version !== commentsRequestVersion.current) return;
       setComments(result.comments);
     } catch (cause) {
+      if (version !== commentsRequestVersion.current) return;
       setCommentsError(cause instanceof Error ? cause.message : 'Could not load comments.');
     }
   };

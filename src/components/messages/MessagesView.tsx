@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { Conversation, Message, MessageContext, User } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
-import { useApp } from '../../context/AppContext.tsx';
+import { useNavigation, useRealtime, useSession, useToasts, useUnreadCounts } from '../../context/AppContext.tsx';
 
 const mergeMessage = (messages: Message[], incoming: Message): Message[] => {
   const withoutPending = incoming.idempotencyKey
@@ -30,7 +30,15 @@ export const MessagesView: React.FC<{
   initialConversationId,
   initialContext,
 }) => {
+<<<<<<< HEAD
   const { currentUser, showToast, openPropertyProfile, openScheduleVisit, realtimeSocket, refreshUnreadMessages, setActiveView, setViewParams } = useApp();
+=======
+  const { currentUser } = useSession();
+  const { showToast } = useToasts();
+  const { realtimeSocket } = useRealtime();
+  const { refreshUnreadMessages } = useUnreadCounts();
+  const { setActiveView, setViewParams } = useNavigation();
+>>>>>>> 90b495c (Phase 5: performance fixes)
   const currentUserId = currentUser?.id;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -44,7 +52,7 @@ export const MessagesView: React.FC<{
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
-  const [isOtherTyping, setIsOtherTyping] = useState(false);
+  const [typingUsers, setTypingUsers] = useState<Record<string, Record<string, true>>>({});
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -61,8 +69,10 @@ export const MessagesView: React.FC<{
   const typingHeartbeatTimer = useRef<number | null>(null);
   const activeConversationRef = useRef(activeConvId);
   const typingActive = useRef(false);
+  const conversationRequestVersion = useRef(0);
   const shouldScrollToBottom = useRef(true);
   const isOtherOnline = Boolean(activeOtherUser && onlineUserIds.includes(activeOtherUser.id));
+  const isOtherTyping = Boolean(activeConvId && activeOtherUser && typingUsers[activeConvId]?.[activeOtherUser.id]);
 
   const stopTyping = useCallback((conversationId = activeConversationRef.current) => {
     if (typingTimer.current !== null) {
@@ -80,17 +90,20 @@ export const MessagesView: React.FC<{
   }, [realtimeSocket]);
 
   const loadConversations = useCallback(async () => {
+    const requestVersion = ++conversationRequestVersion.current;
     try {
       const data = await api.getConversations();
+      if (requestVersion !== conversationRequestVersion.current) return;
       setConversations(data.conversations);
       if (data.conversations.length > 0) {
         setActiveConvId((currentId) => currentId || data.conversations[0].id);
       }
     } catch (error) {
+      if (requestVersion !== conversationRequestVersion.current) return;
       console.error('Failed to load conversations:', error);
       showToast(error instanceof Error ? error.message : 'Could not load conversations.', 'error');
     } finally {
-      setLoading(false);
+      if (requestVersion === conversationRequestVersion.current) setLoading(false);
     }
   }, [showToast]);
 
@@ -183,6 +196,7 @@ export const MessagesView: React.FC<{
       if (message.conversationId !== activeConvId) return;
       if (message.receiverId === currentUserId) {
         realtimeSocket.emit('message:read', { messageId: message.id });
+        setTypingUsers((previous) => ({ ...previous, [activeConvId]: {} }));
       }
       setMessages((previous) => mergeMessage(previous, message));
       void refreshUnreadMessages().catch((error: unknown) => {
@@ -200,7 +214,12 @@ export const MessagesView: React.FC<{
     };
     const handleTyping = (event: { conversationId: string; userId: string; isTyping: boolean }) => {
       if (event.conversationId === activeConvId && event.userId !== currentUserId) {
-        setIsOtherTyping(event.isTyping);
+        setTypingUsers((previous) => {
+          const conversationTyping = { ...(previous[event.conversationId] || {}) };
+          if (event.isTyping) conversationTyping[event.userId] = true;
+          else delete conversationTyping[event.userId];
+          return { ...previous, [event.conversationId]: conversationTyping };
+        });
       }
     };
     const handlePresenceSnapshot = (presence: { userIds: string[] }) => {
@@ -228,7 +247,7 @@ export const MessagesView: React.FC<{
       if (typingHeartbeatTimer.current !== null) window.clearTimeout(typingHeartbeatTimer.current);
       typingHeartbeatTimer.current = null;
       typingActive.current = false;
-      setIsOtherTyping(false);
+      setTypingUsers({});
       setOnlineUserIds([]);
     };
     realtimeSocket.on('connect', joinConversation);
@@ -256,6 +275,7 @@ export const MessagesView: React.FC<{
       realtimeSocket.off('conversation:changed', handleConversationChanged);
       realtimeSocket.off('conversation:read', handleConversationRead);
       stopTyping(activeConvId);
+      setTypingUsers((previous) => ({ ...previous, [activeConvId]: {} }));
       realtimeSocket.emit('conversation:leave', { conversationId: activeConvId });
     };
   }, [
@@ -394,7 +414,7 @@ export const MessagesView: React.FC<{
                   setActiveConvId(c.id);
                   setActiveOtherUser(other || null);
                   setActiveContext(c.activeContext);
-                  setIsOtherTyping(false);
+                   setTypingUsers((previous) => ({ ...previous, [c.id]: {} }));
                   setOnlineUserIds([]);
                 }}
                 className={`w-full p-4 flex items-center gap-3.5 text-left transition-colors ${
@@ -450,7 +470,7 @@ export const MessagesView: React.FC<{
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
-                    setIsOtherTyping(false);
+                     if (activeConvId) setTypingUsers((previous) => ({ ...previous, [activeConvId]: {} }));
                     setActiveConvId(null);
                   }}
                   className="md:hidden p-1.5 rounded-xl text-zinc-400 hover:text-white"

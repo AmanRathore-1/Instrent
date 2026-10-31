@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin, MessageCircle, RefreshCw, Search, UserPlus, Users } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
@@ -49,21 +49,25 @@ export const RoommateFinderView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const requestVersion = useRef(0);
 
   const loadUsers = useCallback(async (search = appliedQuery) => {
     setLoading(true);
+    const version = ++requestVersion.current;
     setError('');
     try {
       const result = await api.discoverUsers(search);
+      if (version !== requestVersion.current) return;
       setUsers(result.users);
     } catch (cause) {
+      if (version !== requestVersion.current) return;
       setError(cause instanceof Error ? cause.message : 'Unable to load roommate profiles.');
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [appliedQuery]);
 
-  useEffect(() => { void loadUsers(); const interval = window.setInterval(() => void loadUsers(), 30_000); return () => window.clearInterval(interval); }, [loadUsers]);
+  useEffect(() => { void loadUsers(); const interval = window.setInterval(() => void loadUsers(), 30_000); return () => { window.clearInterval(interval); requestVersion.current += 1; }; }, [loadUsers]);
 
   const online = useMemo(() => users.filter((user) => user.isOnline), [users]);
   const offline = useMemo(() => users.filter((user) => !user.isOnline), [users]);
