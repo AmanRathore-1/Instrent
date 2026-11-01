@@ -9,10 +9,10 @@ export const Header: React.FC<{
   const { openCreateModal, signOut } = useApp();
 
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-white/[0.06] bg-zinc-950/75 px-4 py-4 backdrop-blur-2xl lg:px-8">
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-white/[0.06] bg-zinc-950/75 px-3 py-3 backdrop-blur-2xl sm:gap-4 sm:px-4 sm:py-4 lg:px-8">
       <button
         onClick={onOpenSearch}
-        className="group flex min-w-0 max-w-xl flex-1 items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-left text-sm text-zinc-300 shadow-inner transition-all hover:border-rose-400/30 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/30"
+        className="group flex min-w-0 max-w-xl flex-1 items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-left text-sm text-zinc-300 shadow-inner transition-all hover:border-rose-400/30 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/30 sm:gap-3 sm:px-4"
       >
         <Search className="h-4 w-4 shrink-0 text-white" />
         <span className="truncate text-zinc-400">Search rooms by location, university or keywords...</span>
@@ -21,7 +21,7 @@ export const Header: React.FC<{
         <button
           onClick={onOpenNotifications}
           aria-label="Notifications"
-          className="rounded-xl border border-white/10 bg-white/[0.05] p-2.5 text-zinc-300 transition-colors hover:border-rose-400/30 hover:bg-white/[0.08] hover:text-white"
+          className="min-h-11 min-w-11 rounded-xl border border-white/10 bg-white/[0.05] p-2.5 text-zinc-300 transition-colors hover:border-rose-400/30 hover:bg-white/[0.08] hover:text-white"
         >
           <Bell className="h-4 w-4" />
         </button>
@@ -34,7 +34,7 @@ export const Header: React.FC<{
         </button>
         <button
           onClick={() => void signOut()}
-          className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+          className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white sm:min-w-0"
           title="Sign out"
         >
           <LogOut className="h-4 w-4" />

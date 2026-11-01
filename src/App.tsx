@@ -52,7 +52,7 @@ const AppContent: React.FC = () => {
         />
 
         {/* View Routing */}
-        <main className="flex-1 overflow-x-hidden">
+        <main className="flex-1 overflow-x-hidden pb-20 md:pb-0">
           <Suspense
             fallback={<PageLoader />}
           >

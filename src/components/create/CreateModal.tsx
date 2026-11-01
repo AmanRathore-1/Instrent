@@ -206,14 +206,14 @@ export const CreateModal: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-5"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-0 backdrop-blur-sm sm:items-center sm:p-5"
       onClick={closeComposer}
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-room-title"
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+        className="flex max-h-[calc(100dvh-env(safe-area-inset-bottom))] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:max-h-[92vh] sm:rounded-3xl"
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-zinc-800 px-5 py-4 sm:px-6">
@@ -242,7 +242,7 @@ export const CreateModal: React.FC = () => {
         </header>
 
         <form onSubmit={publish} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
+          <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain p-4 pb-6 sm:p-6">
             {mode === 'post' ? (
               <>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

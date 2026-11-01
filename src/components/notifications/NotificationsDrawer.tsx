@@ -17,7 +17,15 @@ interface NotificationsDrawerProps {
 }
 
 export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen, onClose }) => {
-  const { showToast, refreshNotifications, realtimeSocket } = useApp();
+  const {
+    showToast,
+    refreshNotifications,
+    realtimeSocket,
+    currentUser,
+    setActiveView,
+    setViewParams,
+    closeNotifications,
+  } = useApp();
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,6 +80,31 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
     }
   };
 
+  const openNotification = (notification: Notification) => {
+    const metadata = notification.metadata ?? {};
+    void markRead(notification.id);
+    closeNotifications();
+    if (notification.type === 'NEW_MESSAGE' && typeof metadata.conversationId === 'string') {
+      setViewParams({ conversationId: metadata.conversationId });
+      setActiveView('messages');
+      return;
+    }
+    if ((notification.type === 'NEW_REEL' || typeof metadata.reelId === 'string') && typeof metadata.reelId === 'string') {
+      window.location.hash = `reel=${metadata.reelId}`;
+      setViewParams({ reelId: metadata.reelId });
+      setActiveView('reels');
+      return;
+    }
+    if ((notification.type === 'NEW_POST' || notification.type === 'COMMENT' || typeof metadata.postId === 'string') && typeof metadata.postId === 'string') {
+      setViewParams({
+        username: typeof metadata.username === 'string' ? metadata.username : currentUser?.username,
+        postId: metadata.postId,
+        refreshKey: Date.now(),
+      });
+      setActiveView('user-profile');
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -105,11 +138,13 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
             {loadingVisible && notifications.length === 0 && <NotificationSkeleton />}
             {notifications.map((notif) => {
               return (
-                <div
+                <button
                   key={notif.id}
+                  type="button"
+                  onClick={() => openNotification(notif)}
                   className={`p-3.5 rounded-2xl transition-colors mb-1 ${
                     notif.isRead ? 'bg-zinc-900/60' : 'bg-zinc-800/80 border border-zinc-700/60'
-                  }`}
+                  } w-full text-left`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="p-2 rounded-xl bg-zinc-950 border border-zinc-800 text-rose-400 flex-shrink-0 mt-0.5">
@@ -133,10 +168,10 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                         {notif.message}
                       </p>
 
-                      {!notif.isRead && <button onClick={() => void markRead(notif.id)} className="mt-2 text-[10px] font-semibold text-rose-300 hover:text-rose-200">Mark as read</button>}
-                    </div>
+                      {!notif.isRead && <span className="mt-2 block text-[10px] font-semibold text-rose-300">Mark as read</span>}
                   </div>
-                </div>
+                  </div>
+                </button>
               );
             })}
 

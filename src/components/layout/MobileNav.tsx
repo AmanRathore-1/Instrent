@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Home, Users, PlusCircle, MessageSquare, User } from 'lucide-react';
+import { Film, Home, PlusCircle, MessageSquare, User, Building2 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 
 export const MobileNav: React.FC = () => {
@@ -13,7 +13,7 @@ export const MobileNav: React.FC = () => {
   } = useApp();
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800 flex items-center justify-around px-2 z-40">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-zinc-800 bg-zinc-950/95 px-1 pt-1.5 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
       {/* Home */}
       <button
         onClick={() => setActiveView('home')}
@@ -25,15 +25,15 @@ export const MobileNav: React.FC = () => {
         <span className="text-[10px] mt-0.5 font-semibold">Home</span>
       </button>
 
-      {/* Find Roommate */}
+      {/* Rooms */}
       <button
-        onClick={() => setActiveView('roommates')}
+        onClick={() => setActiveView('rooms')}
         className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${
-          activeView === 'roommates' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
+          activeView === 'rooms' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
         }`}
       >
-        <Users className="w-5 h-5 stroke-[2.2]" />
-        <span className="text-[10px] mt-0.5 font-semibold">Roommate</span>
+        <Building2 className="w-5 h-5 stroke-[2.2]" />
+        <span className="text-[10px] mt-0.5 font-semibold">Rooms</span>
       </button>
 
       <button

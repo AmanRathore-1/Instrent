@@ -33,6 +33,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     openCreateModal,
     openUserProfile,
     realtimeSocket,
+    viewParams,
   } = useApp();
   const [user, setUser] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -134,6 +135,12 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     setInstituteOrCompany(user.instituteOrCompany || '');
     setIsOpenToRoommates(user.isOpenToRoommates);
   }, [user]);
+
+  useEffect(() => {
+    if (typeof viewParams.postId !== 'string') return;
+    const post = posts.find((item) => item.id === viewParams.postId);
+    if (post) setSelectedPost(post);
+  }, [posts, viewParams.postId]);
 
   const toggleFollow = async () => {
     if (!user || isOwnProfile) return;

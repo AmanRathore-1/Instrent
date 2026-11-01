@@ -1125,7 +1125,7 @@ app.post('/api/reels', requireUser, async (req, res, next) => {
       res.status(400).json({ error: 'Upload an MP4, WebM, or MOV video.' });
       return;
     }
-    const reelId = await persistThenPublish(
+    const createdReel = await persistThenPublish(
       () => prisma.$transaction(async (transaction) => {
         const attached = await transaction.mediaUpload.updateMany({
           where: {
@@ -1152,10 +1152,30 @@ app.post('/api/reels', requireUser, async (req, res, next) => {
           },
           select: { id: true },
         });
-        return created.id;
+        const followers = await transaction.follow.findMany({
+          where: { followedId: user.id },
+          select: { followerId: true },
+        });
+        if (followers.length) {
+          await transaction.notification.createMany({
+            data: followers.map(({ followerId }) => ({
+              userId: followerId,
+              type: 'NEW_REEL',
+              title: 'New room reel',
+              message: `${user.name} shared a new room reel.`,
+              metadata: { reelId: created.id, username: user.username },
+              dedupeKey: `reel-created:${created.id}:${followerId}`,
+            })),
+          });
+        }
+        return { id: created.id, followerIds: followers.map(({ followerId }) => followerId) };
       }, { maxWait: 10_000, timeout: 20_000 }),
-      (id) => io.emit('reel:changed', { reelId: id, authorId: user.id }),
+      ({ id, followerIds }) => {
+        io.emit('reel:changed', { reelId: id, authorId: user.id });
+        followerIds.forEach((followerId) => io.to(`user:${followerId}`).emit('notification:new'));
+      },
     );
+    const reelId = createdReel.id;
     const reel = await prisma.reel.findUnique({
       where: { id: reelId },
       include: {
@@ -1680,7 +1700,7 @@ app.post('/api/posts', requireUser, async (req, res, next) => {
     const assets = await Promise.all(parsedIds.data.map((publicId) =>
       verifyUploadedAsset(publicId, 'image', user.id, 10 * 1024 * 1024),
     ));
-    const postId = await persistThenPublish(
+    const createdPost = await persistThenPublish(
       () => prisma.$transaction(async (transaction) => {
         const attached = await transaction.mediaUpload.updateMany({
           where: {
@@ -1713,10 +1733,30 @@ app.post('/api/posts', requireUser, async (req, res, next) => {
           },
           select: { id: true },
         });
-        return post.id;
+        const followers = await transaction.follow.findMany({
+          where: { followedId: user.id },
+          select: { followerId: true },
+        });
+        if (followers.length) {
+          await transaction.notification.createMany({
+            data: followers.map(({ followerId }) => ({
+              userId: followerId,
+              type: 'NEW_POST',
+              title: 'New room post',
+              message: `${user.name} shared a new room post.`,
+              metadata: { postId: post.id, username: user.username },
+              dedupeKey: `post-created:${post.id}:${followerId}`,
+            })),
+          });
+        }
+        return { id: post.id, followerIds: followers.map(({ followerId }) => followerId) };
       }, { maxWait: 10_000, timeout: 20_000 }),
-      (id) => io.emit('post:changed', { postId: id, authorId: user.id }),
+      ({ id, followerIds }) => {
+        io.emit('post:changed', { postId: id, authorId: user.id });
+        followerIds.forEach((followerId) => io.to(`user:${followerId}`).emit('notification:new'));
+      },
     );
+    const postId = createdPost.id;
     const post = await prisma.post.findUnique({
       where: { id: postId },
       include: {
@@ -2620,6 +2660,9 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
       } });
       return;
     }
+    const recipientConversationRoom = `conversation:${conversationId}`;
+    const recipientIsViewingConversation = Array.from(io.sockets.adapter.rooms.get(recipientConversationRoom) ?? [])
+      .some((socketId) => io.sockets.sockets.get(socketId)?.data.userId === receiverId);
     const message = await persistThenPublish(
       () => prisma.$transaction(async (transaction) => {
         const saved = await transaction.message.create({
@@ -2636,16 +2679,18 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
           where: { id: conversationId },
           data: { updatedAt: new Date() },
         });
-        await transaction.notification.create({
-          data: {
-            userId: receiverId,
-            type: 'NEW_MESSAGE',
-            title: 'New message',
-            message: `${user.name} sent you a message.`,
-            metadata: { conversationId },
-            dedupeKey: `message:${saved.id}`,
-          },
-        });
+        if (!recipientIsViewingConversation) {
+          await transaction.notification.create({
+            data: {
+              userId: receiverId,
+              type: 'NEW_MESSAGE',
+              title: 'New message',
+              message: `${user.name} sent you a message.`,
+              metadata: { conversationId },
+              dedupeKey: `message:${saved.id}`,
+            },
+          });
+        }
         return saved;
       }),
       (saved) => {
@@ -2668,7 +2713,9 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
           conversationId,
           message: savedMessage,
         });
-        io.to(`user:${receiverId}`).emit('notification:new');
+        if (!recipientIsViewingConversation) {
+          io.to(`user:${receiverId}`).emit('notification:new');
+        }
         io.to(`user:${receiverId}`).emit('conversation:changed', { conversationId });
       },
     );

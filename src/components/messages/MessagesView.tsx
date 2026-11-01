@@ -5,6 +5,7 @@ import {
   Building,
   ExternalLink,
   ChevronLeft,
+  Search,
 } from 'lucide-react';
 import { Conversation, Message, MessageContext, User } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
@@ -48,6 +49,7 @@ export const MessagesView: React.FC<{
   const loadingVisible = useDelayedFlag(loading);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
+  const [conversationSearch, setConversationSearch] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -85,7 +87,7 @@ export const MessagesView: React.FC<{
     try {
       const data = await api.getConversations();
       setConversations(data.conversations);
-      if (data.conversations.length > 0) {
+      if (data.conversations.length > 0 && (initialConversationId || window.matchMedia('(min-width: 768px)').matches)) {
         setActiveConvId((currentId) => currentId || data.conversations[0].id);
       }
     } catch (error) {
@@ -94,7 +96,7 @@ export const MessagesView: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [initialConversationId, showToast]);
 
   useEffect(() => {
     if (initialConversationId) {
@@ -354,6 +356,7 @@ export const MessagesView: React.FC<{
         realtimeSocket.emit('conversation:typing', { conversationId: activeConvId, isTyping: true });
         typingHeartbeatTimer.current = window.setTimeout(sendTypingHeartbeat, 2000);
       };
+
       typingHeartbeatTimer.current = window.setTimeout(sendTypingHeartbeat, 2000);
     }
     if (typingTimer.current !== null) window.clearTimeout(typingTimer.current);
@@ -362,21 +365,40 @@ export const MessagesView: React.FC<{
     }, 1000);
   };
 
+  const visibleConversations = conversations.filter((conversation) => {
+    const query = conversationSearch.trim().toLowerCase();
+    if (!query) return true;
+    return [conversation.otherUser?.name, conversation.otherUser?.username, conversation.lastMessage]
+      .filter(Boolean)
+      .some((value) => value!.toLowerCase().includes(query));
+  });
+
   return (
-    <div className="h-[calc(100vh-4.5rem)] max-w-6xl mx-auto px-2 md:px-4 py-2 flex gap-4">
+    <div className="mx-auto flex h-[calc(100dvh-8.5rem)] max-w-6xl gap-2 px-1 py-1 md:h-[calc(100vh-4.5rem)] md:gap-4 md:px-4 md:py-2">
       {/* Conversation list */}
       <div
-        className={`w-full md:w-80 lg:w-96 bg-zinc-900/90 border border-zinc-800 rounded-3xl flex flex-col overflow-hidden shadow-2xl backdrop-blur-md ${
+        className={`flex w-full flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/90 shadow-2xl backdrop-blur-md md:w-80 md:rounded-3xl lg:w-96 ${
           activeConvId ? 'hidden md:flex' : 'flex'
         }`}
       >
-        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-          <h2 className="text-base font-extrabold text-white flex items-center gap-2">
-            <span>Direct Messages</span>
-            <span className="text-xs text-rose-400 font-bold">
-              ({conversations.length})
-            </span>
-          </h2>
+        <div className="border-b border-zinc-800 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-base font-extrabold text-white">
+              <span>Direct Messages</span>
+              <span className="text-xs font-bold text-rose-400">({conversations.length})</span>
+            </h2>
+            {activeConvId && <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Inbox</span>}
+          </div>
+          <label className="relative mt-3 block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            <input
+              value={conversationSearch}
+              onChange={(event) => setConversationSearch(event.target.value)}
+              placeholder="Search conversations"
+              aria-label="Search conversations"
+              className="h-10 w-full rounded-xl border border-zinc-800 bg-zinc-950/70 pl-9 pr-3 text-xs text-white outline-none transition focus:border-rose-500"
+            />
+          </label>
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/60">
@@ -384,7 +406,10 @@ export const MessagesView: React.FC<{
           {!loading && conversations.length === 0 && (
             <p className="p-4 text-center text-xs text-zinc-500">No conversations yet.</p>
           )}
-          {conversations.map((c) => {
+          {!loading && conversations.length > 0 && visibleConversations.length === 0 && (
+            <p className="p-6 text-center text-xs text-zinc-500">No conversations match your search.</p>
+          )}
+          {visibleConversations.map((c) => {
             const isSelected = activeConvId === c.id;
             const other = c.otherUser;
             return (
@@ -439,14 +464,14 @@ export const MessagesView: React.FC<{
 
       {/* Right Active Chat Thread */}
       <div
-        className={`flex-1 bg-zinc-900/90 border border-zinc-800 rounded-3xl flex flex-col overflow-hidden shadow-2xl backdrop-blur-md ${
+        className={`flex flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/90 shadow-2xl backdrop-blur-md md:rounded-3xl ${
           !activeConvId ? 'hidden md:flex' : 'flex'
         }`}
       >
         {activeConvId && activeOtherUser ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60 backdrop-blur-md">
+            <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-950/60 p-3 backdrop-blur-md sm:p-4">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => {
@@ -468,9 +493,9 @@ export const MessagesView: React.FC<{
                   )}
                 </div>
 
-                <div>
+                <div className="min-w-0">
                   <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
-                    {activeOtherUser.name}
+                    <span className="truncate">{activeOtherUser.name}</span>
                   </h3>
                   <p className="text-[11px] text-zinc-400 font-medium">
                     {isOtherTyping ? `${activeOtherUser.name} is typing…` : isOtherOnline ? 'Online' : activeOtherUser.activeRole}
@@ -518,8 +543,13 @@ export const MessagesView: React.FC<{
                 shouldScrollToBottom.current =
                   container.scrollHeight - container.scrollTop - container.clientHeight < 120;
               }}
-              className="flex-1 overflow-y-auto p-4 space-y-4"
+              className="flex-1 space-y-3 overflow-y-auto overscroll-contain bg-[radial-gradient(circle_at_top,rgba(244,63,94,0.04),transparent_35%)] p-3 sm:space-y-4 sm:p-5"
             >
+              {loadingVisible && messages.length === 0 && (
+                <div className="flex h-full items-center justify-center">
+                  <InlineLoader label="Loading messages" />
+                </div>
+              )}
               {hasMoreMessages && (
                 <div className="flex justify-center">
                   <button
@@ -540,7 +570,7 @@ export const MessagesView: React.FC<{
                     className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
                   >
                     <div
-                      className={`max-w-md rounded-2xl px-4 py-2.5 text-xs font-medium shadow-md ${
+                      className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs font-medium shadow-md sm:max-w-md ${
                         isMine
                           ? 'bg-gradient-to-r from-rose-600 to-pink-600 text-white rounded-br-none'
                           : 'bg-zinc-800 text-zinc-100 rounded-bl-none'
@@ -572,19 +602,25 @@ export const MessagesView: React.FC<{
                 e.preventDefault();
                 void handleSendMessage();
               }}
-              className="p-3 border-t border-zinc-800 flex items-center gap-2 bg-zinc-950/80"
+              className="flex items-end gap-2 border-t border-zinc-800 bg-zinc-950/90 p-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] sm:p-3"
             >
-              <input
-                type="text"
+              <textarea
                 placeholder={`Message ${activeOtherUser.name}...`}
                 value={inputText}
+                rows={1}
                 onChange={(e) => handleInputChange(e.target.value)}
-                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    void handleSendMessage();
+                  }
+                }}
+                className="max-h-28 min-h-11 flex-1 resize-none rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-2.5 text-xs text-white outline-none focus:border-rose-500"
               />
               <button
                 type="submit"
                 disabled={isSending || !inputText.trim()}
-                className="rounded-2xl bg-rose-500 p-2.5 text-white shadow-md transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-11 min-w-11 rounded-2xl bg-rose-500 p-2.5 text-white shadow-md transition-colors hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="w-4 h-4" />
               </button>

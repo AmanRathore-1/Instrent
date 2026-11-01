@@ -128,6 +128,8 @@ export interface Notification {
   userId: string;
   type:
     | 'NEW_MESSAGE'
+    | 'NEW_POST'
+    | 'NEW_REEL'
     | 'COMMENT'
     | 'ROOM_INQUIRY'
     | 'LIKE'
@@ -163,4 +165,3 @@ export type ActiveView =
   | 'saved'
   | 'settings'
   | 'user-profile';
-

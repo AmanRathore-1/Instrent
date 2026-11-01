@@ -306,7 +306,7 @@ export const ReelsView: React.FC = () => {
             key={reel.id}
             id={`reel-${reel.id}`}
             data-reel-id={reel.id}
-            className="relative mx-auto h-[calc(100dvh-7rem)] min-h-[32rem] w-full max-w-lg snap-start overflow-hidden bg-black sm:my-3 sm:rounded-2xl"
+            className="relative mx-auto h-[calc(100dvh-7rem)] min-h-0 w-full max-w-lg snap-start overflow-hidden bg-black sm:my-3 sm:min-h-[32rem] sm:rounded-2xl"
           >
             {reel.videoUrl ? (
               <video
