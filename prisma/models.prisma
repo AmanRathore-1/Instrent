@@ -112,6 +112,7 @@ model Post {
   location  String      @default("") @db.VarChar(120)
   rent      Int?
   roomType  String?     @db.VarChar(40)
+  roomFeedRank Int      @default(0)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   author    User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
@@ -122,6 +123,7 @@ model Post {
 
   @@index([authorId, createdAt, id])
   @@index([createdAt, id])
+  @@index([rent, roomFeedRank, id])
   @@schema("rentreel")
 }
 

@@ -100,16 +100,27 @@ const decodeCursor = (cursor: unknown) => {
     const value = JSON.parse(Buffer.from(parsed.data, 'base64url').toString('utf8')) as {
       createdAt?: unknown;
       id?: unknown;
+      roomFeedRank?: unknown;
     };
     const createdAt = typeof value.createdAt === 'string' ? new Date(value.createdAt) : null;
     if (!createdAt || Number.isNaN(createdAt.getTime()) || typeof value.id !== 'string') return undefined;
-    return { createdAt, id: value.id };
+    return {
+      createdAt,
+      id: value.id,
+      roomFeedRank: typeof value.roomFeedRank === 'number' && Number.isInteger(value.roomFeedRank)
+        ? value.roomFeedRank
+        : undefined,
+    };
   } catch {
     return undefined;
   }
 };
-const encodeCursor = (createdAt: Date, id: string) =>
-  Buffer.from(JSON.stringify({ createdAt: createdAt.toISOString(), id })).toString('base64url');
+const encodeCursor = (createdAt: Date, id: string, roomFeedRank?: number) =>
+  Buffer.from(JSON.stringify({
+    createdAt: createdAt.toISOString(),
+    id,
+    ...(roomFeedRank === undefined ? {} : { roomFeedRank }),
+  })).toString('base64url');
 
 const usernameBase = (name: string, userId: string) => {
   const safeName = name.toLowerCase().replace(/[^a-z0-9_]+/g, '').slice(0, 18);
@@ -986,7 +997,12 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
         ...(userId ? { authorId: userId } : {}),
         ...(category === 'rooms' || category === 'recent' ? { rent: { not: null } } : {}),
         ...(category === 'recent' ? { createdAt: { gte: recentSince, lte: now } } : {}),
-        ...(cursor ? {
+        ...(category === 'rooms' && cursor?.roomFeedRank !== undefined ? {
+          OR: [
+            { roomFeedRank: { gt: cursor.roomFeedRank } },
+            { roomFeedRank: cursor.roomFeedRank, id: { gt: cursor.id } },
+          ],
+        } : cursor ? {
           OR: [
             { createdAt: { lt: cursor.createdAt } },
             { createdAt: cursor.createdAt, id: { lt: cursor.id } },
@@ -1000,7 +1016,9 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
         likes: { where: { userId: signedInUser.id }, select: { id: true } },
         saves: { where: { userId: signedInUser.id }, select: { id: true } },
       },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: category === 'rooms'
+        ? [{ roomFeedRank: 'asc' }, { id: 'asc' }]
+        : [{ createdAt: 'desc' }, { id: 'desc' }],
       take: take + 1,
     });
     const hasMore = posts.length > take;
@@ -1019,7 +1037,11 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
         isFollowingOwner: followingIds.has(post.authorId),
       }))),
       nextCursor: hasMore && items.length
-        ? encodeCursor(items[items.length - 1].createdAt, items[items.length - 1].id)
+        ? encodeCursor(
+            items[items.length - 1].createdAt,
+            items[items.length - 1].id,
+            category === 'rooms' ? items[items.length - 1].roomFeedRank : undefined,
+          )
         : null,
     });
   } catch (error) {
@@ -1680,6 +1702,7 @@ app.post('/api/posts', requireUser, async (req, res, next) => {
             location: typeof location === 'string' ? location.trim().slice(0, 120) : '',
             rent: Number.isInteger(rent) && Number(rent) > 0 ? Number(rent) : null,
             roomType: typeof roomType === 'string' ? roomType.slice(0, 40) : null,
+            roomFeedRank: Math.floor(Math.random() * 2147483647),
             media: {
               create: assets.map((asset, position) => ({
                 url: asset.url,

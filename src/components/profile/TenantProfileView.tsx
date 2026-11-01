@@ -16,6 +16,7 @@ import type { Post, Reel, User } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 import { InlineLoader, ProfileSkeleton, useDelayedFlag } from '../loading/index.ts';
+import { PostDetailModal } from '../posts/PostDetailModal.tsx';
 
 interface TenantProfileProps {
   username: string;
@@ -43,6 +44,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [loadError, setLoadError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [name, setName] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [bio, setBio] = useState('');
@@ -279,7 +281,6 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
                 <strong className="block text-lg tracking-normal text-white">{user.followingCount}</strong>following
               </button>
             </div>
-
             <div className="mt-5 space-y-2 text-sm">
               {user.bio && <p className="mx-auto max-w-2xl whitespace-pre-wrap leading-relaxed text-zinc-200 sm:mx-0">{user.bio}</p>}
               <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-zinc-400 sm:justify-start">
@@ -373,7 +374,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           {posts.length > 0 ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
               {posts.map((post) => (
-                <div key={post.id} className="group relative aspect-[4/3] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-lg shadow-black/10">
+                <button key={post.id} type="button" onClick={() => setSelectedPost(post)} aria-label={`Open post: ${post.caption || 'Room post'}`} className="group relative aspect-[4/3] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 text-left shadow-lg shadow-black/10">
                   {post.images?.[0] && (
                     <img
                       src={post.images[0]}
@@ -386,7 +387,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
                   <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/70 via-transparent to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
                     <span className="line-clamp-2 text-[10px] font-semibold text-white">{post.caption}</span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           ) : (
@@ -499,6 +500,8 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           </section>
         </div>
       )}
+
+      {selectedPost && <PostDetailModal post={selectedPost} onClose={() => setSelectedPost(null)} />}
 
       {isEditing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={() => setIsEditing(false)}>
