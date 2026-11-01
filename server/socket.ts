@@ -7,6 +7,7 @@ import { prisma } from './prisma.js';
 import { isAllowedOrigin } from './config/cors.js';
 import { env } from './config/env.js';
 import { verifyAccessToken } from './auth.js';
+import { presenceRegistry } from './presence.js';
 
 const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 
@@ -64,14 +65,14 @@ export function createSocketServer(httpServer: HttpServer): Server {
       socket.disconnect(true);
     }, Math.max(0, expiresIn));
     socket.join(`user:${userId}`);
-    io.emit('presence:online', { userId });
-    void io.fetchSockets().then((sockets) => {
-      socket.emit('presence:snapshot', {
-        userIds: [...new Set(sockets.map((connected) => connected.data.userId as string))],
+    const becameOnline = presenceRegistry.add(userId, socket.id);
+    if (becameOnline) {
+      void prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } }).catch((error: unknown) => {
+        logger.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Could not record online presence');
       });
-    }).catch((error: unknown) => {
-      logger.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Could not load presence snapshot');
-    });
+      io.emit('presence:online', { userId });
+    }
+    socket.emit('presence:snapshot', { userIds: presenceRegistry.onlineUserIds() });
 
     socket.on('conversation:join', async (payload: unknown, acknowledge?: (result: { success: boolean }) => void) => {
       const parsed = conversationPayload.safeParse(payload);
@@ -278,11 +279,12 @@ export function createSocketServer(httpServer: HttpServer): Server {
         }
       }
       typingTimers.clear();
-      void io.in(`user:${userId}`).fetchSockets().then((sockets) => {
-        if (sockets.length === 0) io.emit('presence:offline', { userId });
-      }).catch((error: unknown) => {
-        logger.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Could not update presence');
-      });
+      if (presenceRegistry.remove(userId, socket.id)) {
+        void prisma.user.update({ where: { id: userId }, data: { lastSeenAt: new Date() } }).catch((error: unknown) => {
+          logger.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Could not record offline presence');
+        });
+        io.emit('presence:offline', { userId });
+      }
     });
   });
 

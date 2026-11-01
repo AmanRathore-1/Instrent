@@ -44,6 +44,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { EmailDeliveryError } from './email.js';
+import { presenceRegistry } from './presence.js';
 
 const logger = pino({ level: env.NODE_ENV === 'production' ? 'info' : 'debug' });
 const port = env.PORT;
@@ -263,11 +264,11 @@ app.get('/api/users/discover', requireUser, async (req, res, next) => {
     res.json({
       users: users.map((user) => ({
         ...user,
-        isOnline: user.lastSeenAt !== null && user.lastSeenAt >= cutoff,
+        isOnline: presenceRegistry.isOnline(user.id) && user.lastSeenAt !== null && user.lastSeenAt >= cutoff,
         isFollowing: user.followers.length > 0,
         followers: undefined,
       })),
-      onlineCount: users.filter((user) => user.lastSeenAt !== null && user.lastSeenAt >= cutoff).length,
+      onlineCount: users.filter((user) => presenceRegistry.isOnline(user.id) && user.lastSeenAt !== null && user.lastSeenAt >= cutoff).length,
       presenceTimeoutSeconds: env.PRESENCE_TIMEOUT_SECONDS,
     });
   } catch (error) {
@@ -576,15 +577,27 @@ app.post('/api/auth/reset-password', async (req, res, next) => {
 app.post('/api/auth/logout', async (req, res, next) => {
   try {
     if (!sameOrigin(req, res)) return;
+    const authorization = req.header('authorization');
+    const accessToken = authorization?.startsWith('Bearer ') ? authorization.slice(7) : '';
+    const authenticatedUser = accessToken ? await verifyAccessToken(accessToken).catch(() => null) : null;
     const rawToken = parseCookie(req.headers.cookie, refreshCookieName);
     if (rawToken) {
       const session = await prisma.refreshSession.findUnique({ where: { tokenHash: hashValue(rawToken) }, select: { userId: true, id: true } });
-      if (session) {
+      if (session && (!authenticatedUser || session.userId === authenticatedUser.id)) {
         await prisma.refreshSession.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
-        io.in(`user:${session.userId}`).disconnectSockets(true);
+        if (presenceRegistry.removeAll(session.userId)) {
+          await prisma.user.update({ where: { id: session.userId }, data: { lastSeenAt: new Date() } });
+          io.emit('presence:offline', { userId: session.userId });
+        }
+        const sockets = await io.fetchSockets();
+        for (const socket of sockets) {
+          if (socket.data.userId === session.userId && (!accessToken || socket.handshake.auth?.token === accessToken)) {
+            socket.disconnect(true);
+          }
+        }
       }
     }
-    clearRefreshCookie(res);
+    if (!authenticatedUser || !rawToken) clearRefreshCookie(res);
     res.status(204).end();
   } catch (error) {
     next(error);

@@ -42,7 +42,7 @@ const UserCard: React.FC<{
 };
 
 export const RoommateFinderView: React.FC = () => {
-  const { openUserProfile, openChatWith, showToast } = useApp();
+  const { openUserProfile, openChatWith, showToast, realtimeSocket } = useApp();
   const [users, setUsers] = useState<DiscoverUser[]>([]);
   const [query, setQuery] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
@@ -64,6 +64,31 @@ export const RoommateFinderView: React.FC = () => {
   }, [appliedQuery]);
 
   useEffect(() => { void loadUsers(); const interval = window.setInterval(() => void loadUsers(), 30_000); return () => window.clearInterval(interval); }, [loadUsers]);
+
+  useEffect(() => {
+    if (!realtimeSocket) return;
+    const setOnline = (userId: string, isOnline: boolean) => {
+      setUsers((items) => items.map((user) => user.id === userId ? { ...user, isOnline } : user));
+    };
+    const handleOnline = (payload: { userId?: string }) => {
+      if (payload.userId) setOnline(payload.userId, true);
+    };
+    const handleOffline = (payload: { userId?: string }) => {
+      if (payload.userId) setOnline(payload.userId, false);
+    };
+    const handleSnapshot = (payload: { userIds?: string[] }) => {
+      const onlineIds = new Set(payload.userIds ?? []);
+      setUsers((items) => items.map((user) => ({ ...user, isOnline: onlineIds.has(user.id) })));
+    };
+    realtimeSocket.on('presence:online', handleOnline);
+    realtimeSocket.on('presence:offline', handleOffline);
+    realtimeSocket.on('presence:snapshot', handleSnapshot);
+    return () => {
+      realtimeSocket.off('presence:online', handleOnline);
+      realtimeSocket.off('presence:offline', handleOffline);
+      realtimeSocket.off('presence:snapshot', handleSnapshot);
+    };
+  }, [realtimeSocket]);
 
   const online = useMemo(() => users.filter((user) => user.isOnline), [users]);
   const offline = useMemo(() => users.filter((user) => !user.isOnline), [users]);

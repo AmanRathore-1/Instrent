@@ -334,6 +334,7 @@ export const AppProvider = ({
       if (reconnectWarningTimer) clearTimeout(reconnectWarningTimer);
       teardownSocket();
       socket = null;
+      setRealtimeSocket(null);
     };
   }, [currentUserId, refreshNotifications, refreshUnreadMessages, showToast]);
 

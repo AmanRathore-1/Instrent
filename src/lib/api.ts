@@ -47,15 +47,21 @@ export function clearAuthTokens() {
 }
 
 export function hasSessionHint() {
-  return localStorage.getItem(sessionHintKey) === '1';
+  if (sessionStorage.getItem(sessionHintKey) === '1') return true;
+  if (localStorage.getItem(sessionHintKey) === '1') {
+    sessionStorage.setItem(sessionHintKey, '1');
+    localStorage.removeItem(sessionHintKey);
+    return true;
+  }
+  return false;
 }
 
 export function markSessionActive() {
-  localStorage.setItem(sessionHintKey, '1');
+  sessionStorage.setItem(sessionHintKey, '1');
 }
 
 export function clearSessionHint() {
-  localStorage.removeItem(sessionHintKey);
+  sessionStorage.removeItem(sessionHintKey);
 }
 
 export function notifyAuthExpired() {
@@ -199,7 +205,10 @@ export const api = {
     verifyResetOtp: (data: { email: string; code: string }) => publicJson<{ grant: string }>('/auth/verify-reset-otp', data),
     resetPassword: (data: { grant: string; password: string }) => publicJson<{ accessToken: string; user: User }>('/auth/reset-password', data),
     logout: async () => {
-      await axios.post(`${BASE_URL}/auth/logout`, undefined, { withCredentials: true }).catch(() => undefined);
+      await axios.post(`${BASE_URL}/auth/logout`, undefined, {
+        withCredentials: true,
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+      }).catch(() => undefined);
       clearAuthTokens();
       clearSessionHint();
     },
