@@ -15,6 +15,7 @@ import {
 import type { Post, Reel, User } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { InlineLoader, ProfileSkeleton, useDelayedFlag } from '../loading/index.ts';
 
 interface TenantProfileProps {
   username: string;
@@ -38,6 +39,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [activeContentTab, setActiveContentTab] = useState<'posts' | 'reels'>('posts');
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const loadingVisible = useDelayedFlag(loading);
   const [loadError, setLoadError] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -52,6 +54,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [connections, setConnections] = useState<Array<User & { isFollowing: boolean }>>([]);
   const [connectionsCursor, setConnectionsCursor] = useState<string | null>(null);
   const [connectionsLoading, setConnectionsLoading] = useState(false);
+  const connectionsLoadingVisible = useDelayedFlag(connectionsLoading);
   const showToastRef = useRef(showToast);
   useEffect(() => {
     showToastRef.current = showToast;
@@ -199,14 +202,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     }
   };
 
-  if (loading) {
-    return (
-      <div className="py-24 text-center">
-        <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-rose-500 border-t-transparent" />
-        <p className="text-xs text-zinc-400">Loading profile...</p>
-      </div>
-    );
-  }
+  if (loading) return loadingVisible ? <ProfileSkeleton /> : null;
 
   if (!user) {
     return (
@@ -492,7 +488,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
               {connections.length === 0 && !connectionsLoading && (
                 <p className="py-8 text-center text-xs text-zinc-500">No {connectionKind} to show.</p>
               )}
-              {connectionsLoading && <p className="py-4 text-center text-xs text-zinc-500">Loading…</p>}
+              {connectionsLoadingVisible && <div className="flex justify-center py-4"><InlineLoader /></div>}
             </div>
             {connectionsCursor && (
               <button disabled={connectionsLoading} onClick={() => void loadConnections(connectionsCursor)} className="border-t border-zinc-800 py-3 text-xs font-semibold text-zinc-300 disabled:opacity-50">

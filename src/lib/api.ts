@@ -15,6 +15,7 @@ import axios from 'axios';
 
 export const API_URL = import.meta.env.VITE_API_URL ?? '';
 const BASE_URL = `${API_URL}/api`;
+const API_REQUEST_TIMEOUT_MS = 20_000;
 
 let accessToken: string | null = null;
 let refreshPromise: Promise<string> | null = null;
@@ -75,7 +76,10 @@ export function getAccessToken(): string | null {
 async function refreshAccessToken() {
   if (!refreshPromise) {
     const generationAtStart = authGeneration;
-    const request = axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, { withCredentials: true })
+    const request = axios.post<{ accessToken: string }>(`${BASE_URL}/auth/refresh`, undefined, {
+      withCredentials: true,
+      timeout: API_REQUEST_TIMEOUT_MS,
+    })
       .then((response) => {
         if (authGeneration === generationAtStart) setAuthTokens(response.data);
         return response.data.accessToken;
@@ -149,14 +153,39 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     const headers = new Headers(init.headers);
     if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
     if (token) headers.set('Authorization', `Bearer ${token}`);
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, API_REQUEST_TIMEOUT_MS);
+    const abortRequest = () => controller.abort();
+    init.signal?.addEventListener('abort', abortRequest, { once: true });
     return fetch(`${BASE_URL}${path}`, {
       ...init,
       headers,
+      signal: controller.signal,
       credentials: 'include',
+    }).catch((error: unknown) => {
+      if (timedOut) {
+        throw new ApiError('The server took too long to respond. Please try again.', { code: 'REQUEST_TIMEOUT' });
+      }
+      throw error;
+    }).finally(() => {
+      window.clearTimeout(timeout);
+      init.signal?.removeEventListener('abort', abortRequest);
     });
   };
 
-  let response = await request(accessToken);
+  let response: Response;
+  try {
+    response = await request(accessToken);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Unable to reach the server. Please check your connection and try again.', {
+      code: 'NETWORK_ERROR',
+    });
+  }
   if (!isPublicAuthEndpoint && response.status === 401) {
     try {
       response = await request(await refreshAccessToken());

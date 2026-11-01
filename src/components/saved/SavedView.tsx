@@ -3,11 +3,13 @@ import { Bookmark, Home, MapPin } from 'lucide-react';
 import type { RentalRoom } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { RoomCardSkeleton, useDelayedFlag } from '../loading/index.ts';
 
 export const SavedView: React.FC = () => {
   const { setViewParams, setActiveView, showToast } = useApp();
   const [rooms, setRooms] = useState<RentalRoom[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadingVisible = useDelayedFlag(loading);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export const SavedView: React.FC = () => {
         <Bookmark className="h-5 w-5 fill-amber-400 text-amber-400" />
         <h1 className="text-xl font-black text-white">Saved rooms</h1>
       </header>
-      {loading && <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[1, 2, 3].map((item) => <div key={item} className="aspect-[4/3] animate-pulse rounded-xl bg-zinc-900" />)}</div>}
+      {loadingVisible && <RoomCardSkeleton />}
       {error && <div role="alert" className="rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-xs text-rose-200">{error}</div>}
       {!loading && !error && rooms.length === 0 && <div className="py-16 text-center text-sm text-zinc-500">You have not saved any rooms yet.</div>}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

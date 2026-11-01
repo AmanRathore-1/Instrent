@@ -9,6 +9,7 @@ import {
 import { Notification } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { InlineLoader, NotificationSkeleton, useDelayedFlag } from '../loading/index.ts';
 
 interface NotificationsDrawerProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadingVisible = useDelayedFlag(loading);
   const [error, setError] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
 
@@ -100,6 +102,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
 
           {/* List */}
           <div className="max-h-[calc(100vh-80px)] overflow-y-auto divide-y divide-zinc-800/60 p-2">
+            {loadingVisible && notifications.length === 0 && <NotificationSkeleton />}
             {notifications.map((notif) => {
               return (
                 <div
@@ -143,7 +146,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
               </div>
             )}
             {error && <p role="alert" className="p-4 text-xs text-rose-300">{error}</p>}
-            {nextCursor && <button disabled={loading} onClick={() => void fetchNotifs(nextCursor)} className="w-full py-3 text-xs font-semibold text-zinc-300 disabled:opacity-50">{loading ? 'Loading…' : 'Load older notifications'}</button>}
+            {nextCursor && <button disabled={loading} onClick={() => void fetchNotifs(nextCursor)} className="w-full py-3 text-xs font-semibold text-zinc-300 disabled:opacity-50">{loading ? <InlineLoader label="Loading older notifications" /> : 'Load older notifications'}</button>}
           </div>
         </div>
       </div>

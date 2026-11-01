@@ -3,6 +3,7 @@ import { ArrowLeft, Bookmark, ChevronDown, ChevronUp, Home, MapPin, MessageCircl
 import type { RentalRoom } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { InlineLoader, Skeleton, SkeletonGroup, useDelayedFlag } from '../loading/index.ts';
 
 const mediaTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'video/mp4', 'video/webm', 'video/quicktime']);
 
@@ -11,6 +12,7 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
   const [rooms, setRooms] = useState<RentalRoom[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<RentalRoom | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadingVisible = useDelayedFlag(loading && rooms.length === 0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -317,7 +319,7 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
         <button className="rounded-lg bg-zinc-800 px-3 py-2 text-xs font-semibold text-white sm:col-span-3 lg:col-span-7">Apply filters</button>
       </form>
 
-      {loading && rooms.length === 0 && <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[1, 2, 3].map((item) => <div key={item} className="aspect-[4/3] animate-pulse rounded-xl bg-zinc-900" />)}</div>}
+      {loadingVisible && <SkeletonGroup label="rooms" className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[1, 2, 3].map((item) => <Skeleton key={item} height={260} rounded="rounded-xl" />)}</SkeletonGroup>}
       {error && <div role="alert" className="mt-6 rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-xs text-rose-200">{error}<button onClick={() => void loadRooms()} className="ml-3 underline">Retry</button></div>}
       {!loading && !error && rooms.length === 0 && <div className="py-16 text-center text-sm text-zinc-500">No rooms match these filters.</div>}
       <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -344,7 +346,7 @@ export const RoomsView: React.FC<{ initialRoomId?: string }> = ({ initialRoomId 
           </article>
         ))}
       </div>
-      {nextCursor && <button disabled={loading || loadingMore} onClick={() => void loadRooms(nextCursor)} className="mx-auto mt-6 block rounded-lg bg-zinc-800 px-5 py-2.5 text-xs font-semibold disabled:opacity-50">{loadingMore ? 'Loading…' : 'Load more rooms'}</button>}
+      {nextCursor && <button disabled={loading || loadingMore} onClick={() => void loadRooms(nextCursor)} className="mx-auto mt-6 block rounded-lg bg-zinc-800 px-5 py-2.5 text-xs font-semibold disabled:opacity-50">{loadingMore ? <InlineLoader label="Loading more rooms" /> : 'Load more rooms'}</button>}
 
       {createOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4" onClick={() => !busy && setCreateOpen(false)}>

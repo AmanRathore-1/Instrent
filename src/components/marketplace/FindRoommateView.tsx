@@ -12,6 +12,7 @@ import {
 import type { Comment, Post, RentalRoom } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { CommentSkeleton, InlineLoader, RoomCardSkeleton, useDelayedFlag } from '../loading/index.ts';
 
 const PostInteractions = React.memo<{
   post: Post;
@@ -30,6 +31,7 @@ const PostInteractions = React.memo<{
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentError, setCommentError] = useState('');
+  const commentsLoadingVisible = useDelayedFlag(commentsLoading);
   const [commentCursor, setCommentCursor] = useState<string | null>(null);
   const [editingComment, setEditingComment] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
@@ -254,11 +256,7 @@ const PostInteractions = React.memo<{
 
       {commentsOpen && (
         <div className="mt-3 space-y-2">
-          {commentsLoading && (
-            <p className="text-[11px] text-zinc-500">
-              Loading comments...
-            </p>
-          )}
+          {commentsLoadingVisible && <CommentSkeleton />}
 
           {commentError && (
             <p role="alert" className="text-[11px] text-rose-300">
@@ -393,6 +391,7 @@ export const FindRoommateView: React.FC<{
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [category, setCategory] = useState<'all' | 'rooms' | 'roommates' | 'recent'>('all');
+  const feedLoadingVisible = useDelayedFlag(loading);
 
   const loadMoreMarker = useRef<HTMLDivElement>(null);
 
@@ -607,10 +606,8 @@ export const FindRoommateView: React.FC<{
         </div>
       )}
 
-      {loading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((item) => <div key={item} className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/70"><div className="aspect-[4/3] animate-pulse bg-zinc-800" /><div className="space-y-3 p-3"><div className="h-3 w-2/3 animate-pulse rounded bg-zinc-800" /><div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800" /></div></div>)}
-        </div>
+      {feedLoadingVisible && (
+        <RoomCardSkeleton count={6} />
       )}
 
       {!loading && error && (
@@ -794,7 +791,7 @@ export const FindRoommateView: React.FC<{
             disabled={isLoadingMore}
             className="rounded-xl bg-zinc-800 px-5 py-2.5 text-xs font-semibold text-white hover:bg-zinc-700 disabled:opacity-50"
           >
-            {isLoadingMore ? 'Loading...' : 'Load more'}
+            {isLoadingMore ? <InlineLoader label="Loading more" /> : 'Load more'}
           </button>
         </div>
       )}

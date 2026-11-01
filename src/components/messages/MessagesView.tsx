@@ -9,6 +9,7 @@ import {
 import { Conversation, Message, MessageContext, User } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { ConversationListSkeleton, InlineLoader, useDelayedFlag } from '../loading/index.ts';
 
 const mergeMessage = (messages: Message[], incoming: Message): Message[] => {
   const withoutPending = incoming.idempotencyKey
@@ -44,6 +45,7 @@ export const MessagesView: React.FC<{
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const loadingVisible = useDelayedFlag(loading);
   const [isOtherTyping, setIsOtherTyping] = useState(false);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
 
@@ -378,9 +380,7 @@ export const MessagesView: React.FC<{
         </div>
 
         <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/60">
-          {loading && (
-            <p className="p-4 text-center text-xs text-zinc-500">Loading conversations...</p>
-          )}
+          {loadingVisible && <ConversationListSkeleton />}
           {!loading && conversations.length === 0 && (
             <p className="p-4 text-center text-xs text-zinc-500">No conversations yet.</p>
           )}
@@ -528,7 +528,7 @@ export const MessagesView: React.FC<{
                     disabled={loadingOlderMessages}
                     className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:bg-zinc-800 disabled:opacity-50"
                   >
-                    {loadingOlderMessages ? 'Loading...' : 'Load older messages'}
+                    {loadingOlderMessages ? <InlineLoader label="Loading older messages" /> : 'Load older messages'}
                   </button>
                 </div>
               )}

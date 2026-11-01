@@ -17,12 +17,14 @@ import {
 import type { Comment, Reel } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { InlineLoader, PostSkeleton, useDelayedFlag } from '../loading/index.ts';
 
 export const ReelsView: React.FC = () => {
   const { currentUser, openUserProfile, openCreateModal, showToast, realtimeSocket } = useApp();
   const [reels, setReels] = useState<Reel[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const loadingVisible = useDelayedFlag(loading && reels.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [activeReelId, setActiveReelId] = useState('');
@@ -256,8 +258,8 @@ export const ReelsView: React.FC = () => {
     }
   };
 
-  if (loading && reels.length === 0) {
-    return <div className="mx-auto max-w-3xl animate-pulse p-8 text-center text-sm text-zinc-400">Loading reels...</div>;
+  if (loadingVisible) {
+    return <div className="mx-auto max-w-3xl p-4"><PostSkeleton count={2} /></div>;
   }
 
   if (error && reels.length === 0) {
@@ -404,7 +406,7 @@ export const ReelsView: React.FC = () => {
 
         {nextCursor && (
           <div ref={loadMoreMarker} className="h-8 text-center text-xs text-zinc-500">
-            {loading ? 'Loading more reels...' : ''}
+            {loading && reels.length > 0 ? <InlineLoader label="Loading more reels" /> : ''}
           </div>
         )}
       </div>

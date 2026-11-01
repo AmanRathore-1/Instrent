@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MapPin, MessageCircle, RefreshCw, Search, UserPlus, Users } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
+import { RoomCardSkeleton, useDelayedFlag } from '../loading/index.ts';
 
 type DiscoverUser = Awaited<ReturnType<typeof api.discoverUsers>>['users'][number];
 
@@ -47,6 +48,7 @@ export const RoommateFinderView: React.FC = () => {
   const [query, setQuery] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const loadingVisible = useDelayedFlag(loading);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -113,7 +115,7 @@ export const RoommateFinderView: React.FC = () => {
       <div><div className="flex items-center gap-2"><Users className="h-5 w-5 text-rose-400" /><h1 className="text-2xl font-black text-white">Find Your Roommate</h1></div><p className="mt-1 text-sm text-zinc-400">Discover people and find your perfect roommate.</p></div>
       <form onSubmit={(event) => { event.preventDefault(); setAppliedQuery(query.trim()); }} className="flex w-full max-w-md items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-3 focus-within:border-rose-400"><Search className="h-4 w-4 text-zinc-500" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, username or location" className="min-h-10 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-zinc-500" /></form>
     </div>
-    {loading && <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[1, 2, 3].map((item) => <div key={item} className="h-44 animate-pulse rounded-2xl bg-zinc-900" />)}</div>}
+    {loadingVisible && <div className="mt-8"><RoomCardSkeleton /></div>}
     {!loading && error && <div role="alert" className="mt-8 rounded-2xl border border-rose-500/30 bg-rose-500/5 p-8 text-center"><p className="text-sm text-rose-200">{error}</p><button type="button" onClick={() => void loadUsers()} className="mt-4 inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-4 py-2 text-xs font-semibold text-white"><RefreshCw className="h-3.5 w-3.5" />Retry</button></div>}
     {!loading && !error && users.length === 0 && <div className="mt-8 rounded-2xl border border-zinc-800 py-16 text-center text-sm text-zinc-500">No users match your search.</div>}
     {!loading && !error && users.length > 0 && <>{section(`Online users`, online, true)}{section('Offline users', offline, false)}</>}

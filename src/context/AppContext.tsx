@@ -19,6 +19,7 @@ import type {
 } from '../types/client';
 
 import { api, API_URL, ApiError, getAccessToken } from '../lib/api';
+import { PageLoader } from '../components/loading/PageLoader.tsx';
 
 interface ToastInfo {
   id: string;
@@ -467,13 +468,7 @@ export const AppProvider = ({
   ]);
 
   if (isUserLoading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-200 flex items-center justify-center">
-        <p className="text-sm">
-          Loading your InstRent account...
-        </p>
-      </div>
-    );
+    return <PageLoader />;
   }
 
   if (userLoadError) {

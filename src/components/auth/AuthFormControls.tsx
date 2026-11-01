@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { InputHTMLAttributes, ReactNode } from 'react';
+import { LoadingButton } from '../loading/index.ts';
 
 export function AuthInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`auth-input ${props.className ?? ''}`} />;
@@ -62,6 +63,6 @@ export function OtpInput({ value, onChange }: { value: string; onChange: (value:
   );
 }
 
-export function SubmitButton({ busy, children }: { busy: boolean; children: ReactNode }) {
-  return <button disabled={busy} className="w-full rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Please wait...' : children}</button>;
+export function SubmitButton({ busy, children, busyLabel = 'Working...' }: { busy: boolean; children: ReactNode; busyLabel?: string }) {
+  return <LoadingButton busy={busy} busyLabel={busyLabel} className="relative w-full rounded-xl bg-gradient-to-r from-rose-500 to-amber-500 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{children}</LoadingButton>;
 }

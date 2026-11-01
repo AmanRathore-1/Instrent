@@ -1,0 +1,30 @@
+@keyframes loading-shimmer {
+  0% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+  100% { opacity: 0.55; }
+}
+
+@keyframes loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-loading-shimmer {
+  animation: loading-shimmer 1.4s ease-in-out infinite;
+}
+
+.animate-loading-spin {
+  animation: loading-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-loading-shimmer,
+  .animate-loading-spin {
+    animation: none;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  .animate-loading-shimmer {
+    background-color: rgb(228 228 231 / 80%) !important;
+  }
+}

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import type { User } from '../types/client.ts';
 import { api, clearAuthTokens, clearSessionHint, hasSessionHint, markSessionActive, setAuthTokens } from '../lib/api.ts';
+import { PageLoader } from '../components/loading/index.ts';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 type AuthContextValue = {
@@ -158,12 +159,12 @@ export function useAuth() {
 
 export function ProtectedRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
-  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading InstRent...</div>;
+  if (status === 'loading') return <PageLoader />;
   return status === 'authenticated' ? children : null;
 }
 
 export function GuestRoute({ children }: { children: ReactNode }) {
   const { status } = useAuth();
-  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading InstRent...</div>;
+  if (status === 'loading') return <PageLoader />;
   return status === 'unauthenticated' ? children : null;
 }
