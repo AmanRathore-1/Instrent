@@ -88,7 +88,12 @@ export function RoomCardSkeleton({ count = 3 }: { count?: number }) {
 }
 
 export function ButtonLoader({ label, busyLabel = 'Working...' }: { label: ReactNode; busyLabel?: string }) {
-  return <span className="inline-flex min-w-0 items-center justify-center gap-2"><span className={busyLabel ? '' : 'invisible'}>{busyLabel}</span><span className="absolute"><Spinner size={16} /></span><span className="invisible">{label}</span></span>;
+  return (
+    <span className="inline-flex min-w-0 items-center justify-center gap-2 opacity-90" aria-live="polite">
+      <Spinner size={16} />
+      <span>{busyLabel || label}</span>
+    </span>
+  );
 }
 
 export function InlineLoader({ label = 'Loading' }: { label?: string }) {
