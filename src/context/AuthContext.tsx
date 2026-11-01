@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { User } from '../types/client.ts';
-import { api, clearAuthTokens, clearSessionHint, markSessionActive, setAuthTokens } from '../lib/api.ts';
+import { api, clearAuthTokens, clearSessionHint, hasSessionHint, markSessionActive, setAuthTokens } from '../lib/api.ts';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 type AuthContextValue = {
@@ -47,20 +47,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    void api.auth.restore()
-      .then((result) => {
-        if (active) {
-          setUser(result.user);
-          setStatus('authenticated');
-        }
-      })
-      .catch(() => {
-        if (active) {
-          clearAuthTokens();
-          clearSessionHint();
-          setStatus('unauthenticated');
-        }
-      });
+    if (hasSessionHint()) {
+      void api.auth.restore()
+        .then((result) => {
+          if (active) {
+            setUser(result.user);
+            setStatus('authenticated');
+          }
+        })
+        .catch(() => {
+          if (active) {
+            clearAuthTokens();
+            clearSessionHint();
+            setStatus('unauthenticated');
+          }
+        });
+    } else {
+      setStatus('unauthenticated');
+    }
     const channel = 'BroadcastChannel' in window ? new BroadcastChannel('rentreel-auth') : null;
     const onLogout = () => {
       clearAuthTokens();

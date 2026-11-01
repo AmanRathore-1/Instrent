@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import * as THREE from 'three';
 
@@ -9,6 +9,7 @@ type ModernAuthShellProps = {
 /** Shared visual shell for the real InstRent authentication forms. */
 export default function ModernLoginSignup({ children }: ModernAuthShellProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [webglAvailable, setWebglAvailable] = useState(true);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -16,7 +17,16 @@ export default function ModernLoginSignup({ children }: ModernAuthShellProps) {
 
     let active = true;
     let animationId = 0;
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      const context = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      if (!context) throw new Error('WebGL is unavailable.');
+      renderer = new THREE.WebGLRenderer({ canvas, context, alpha: true, antialias: false });
+    } catch (error) {
+      console.info('WebGL auth background unavailable; using CSS fallback.', error instanceof Error ? error.message : 'Unknown WebGL error');
+      setWebglAvailable(false);
+      return undefined;
+    }
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     const uniforms = {
@@ -102,7 +112,13 @@ export default function ModernLoginSignup({ children }: ModernAuthShellProps) {
       if (!active) return;
       animationId = window.requestAnimationFrame(animate);
       uniforms.u_time.value = (performance.now() - startTime) / 1000;
-      renderer.render(scene, camera);
+      try {
+        renderer.render(scene, camera);
+      } catch (error) {
+        console.info('WebGL auth background stopped; using CSS fallback.', error instanceof Error ? error.message : 'Unknown WebGL error');
+        active = false;
+        setWebglAvailable(false);
+      }
     };
     animate();
 
@@ -118,7 +134,8 @@ export default function ModernLoginSignup({ children }: ModernAuthShellProps) {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-black px-4 py-8 text-white">
-      <canvas ref={canvasRef} aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full opacity-80" />
+      <div aria-hidden="true" className={`auth-dots pointer-events-none absolute inset-0 opacity-80 ${webglAvailable ? 'hidden' : ''}`} />
+      <canvas ref={canvasRef} aria-hidden="true" className={`pointer-events-none absolute inset-0 h-full w-full opacity-80 ${webglAvailable ? '' : 'hidden'}`} />
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,0,0,0.58),rgba(0,0,0,0.96)_78%)]" />
       <section className="relative z-10 w-full max-w-md rounded-2xl border border-white/10 bg-zinc-950/90 p-5 shadow-2xl shadow-black/60 backdrop-blur-xl sm:p-8">
         {children}

@@ -46,6 +46,10 @@ export const CreateModal: React.FC = () => {
     const element = videoElement.current;
     element.src = url;
     return () => {
+      if (!element.isConnected) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       element.pause();
       element.removeAttribute('src');
       element.load();

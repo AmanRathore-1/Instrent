@@ -6,10 +6,12 @@ import App from './App.tsx';
 import { AuthView } from './components/auth/AuthView.tsx';
 import { AppProvider } from './context/AppContext.tsx';
 import { AuthProvider, ProtectedRoute, useAuth } from './context/AuthContext.tsx';
+import { BootLoader } from './components/ui/BootLoader.tsx';
+import { AppErrorBoundary } from './components/ui/AppErrorBoundary.tsx';
 
 function Root() {
   const { status, logout } = useAuth();
-  if (status === 'loading') return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-zinc-300">Loading InstRent...</div>;
+  if (status === 'loading') return <BootLoader message="Checking your session" />;
   if (status === 'unauthenticated') return <AuthView onAuthenticated={() => undefined} />;
 
   return (
@@ -21,6 +23,6 @@ function Root() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <AuthProvider><Root /></AuthProvider>
+    <AppErrorBoundary><AuthProvider><Root /></AuthProvider></AppErrorBoundary>
   </StrictMode>,
 );
