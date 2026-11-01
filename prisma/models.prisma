@@ -23,6 +23,7 @@ model User {
   instituteOrCompany  String?
   activeRole          String                    @default("TENANT")
   isVerified          Boolean                   @default(false)
+  isOpenToRoommates   Boolean                   @default(false)
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
   lastSeenAt          DateTime?
@@ -52,6 +53,7 @@ model User {
   @@unique([email])
   @@index([createdAt, id])
   @@index([lastSeenAt])
+  @@index([isOpenToRoommates, createdAt, id])
   @@schema("rentreel")
 }
 

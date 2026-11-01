@@ -777,6 +777,7 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
         where: {
           userId: { not: viewer.id },
           user: {
+            isOpenToRoommates: true,
             city: search.data.city
               ? { contains: search.data.city, mode: 'insensitive' }
               : { not: '' },

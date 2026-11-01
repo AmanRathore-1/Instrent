@@ -490,10 +490,11 @@ export const api = {
     fetchJson<{ success: boolean }>(`/comments/${id}`, { method: 'DELETE' }),
 
   // Posts & Profiles
-  getPosts: (userId?: string, cursor?: string) => {
+  getPosts: (userId?: string, cursor?: string, category?: 'rooms' | 'recent') => {
     const params = new URLSearchParams();
     if (userId) params.set('userId', userId);
     if (cursor) params.set('cursor', cursor);
+    if (category) params.set('category', category);
     const query = params.toString();
     return fetchJson<{ posts: Post[]; nextCursor: string | null }>(`/posts${query ? `?${query}` : ''}`);
   },
@@ -539,7 +540,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   updateMyProfile: (
-    data: Omit<Partial<Pick<User, 'name' | 'username' | 'bio' | 'city' | 'locationArea' | 'occupation' | 'instituteOrCompany'>>, 'occupation'> & {
+    data: Omit<Partial<Pick<User, 'name' | 'username' | 'bio' | 'city' | 'locationArea' | 'occupation' | 'instituteOrCompany' | 'isOpenToRoommates'>>, 'occupation'> & {
       occupation?: User['occupation'] | null;
       avatarPublicId?: string;
     },

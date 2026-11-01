@@ -390,8 +390,9 @@ export const FindRoommateView: React.FC<{
   const [busyUsers, setBusyUsers] = useState<string[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [category, setCategory] = useState<'all' | 'rooms' | 'roommates' | 'recent'>('all');
+  const [category, setCategory] = useState<'rooms' | 'recent'>('rooms');
   const feedLoadingVisible = useDelayedFlag(loading);
+  const postCategory = mode === 'feed' ? category : undefined;
 
   const loadMoreMarker = useRef<HTMLDivElement>(null);
 
@@ -400,7 +401,7 @@ export const FindRoommateView: React.FC<{
     setError('');
 
     try {
-      const result = await api.getPosts();
+      const result = await api.getPosts(undefined, undefined, postCategory);
       setPosts(result.posts);
       setNextCursor(result.nextCursor);
     } catch (cause) {
@@ -414,7 +415,7 @@ export const FindRoommateView: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [postCategory]);
 
   const loadRooms = useCallback(async () => {
     if (mode !== 'feed') return;
@@ -432,7 +433,7 @@ export const FindRoommateView: React.FC<{
     setIsLoadingMore(true);
 
     try {
-      const result = await api.getPosts(undefined, nextCursor);
+      const result = await api.getPosts(undefined, nextCursor, postCategory);
 
       setPosts((current) => {
         const existingIds = new Set(
@@ -458,7 +459,7 @@ export const FindRoommateView: React.FC<{
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, nextCursor, showToast]);
+  }, [isLoadingMore, nextCursor, postCategory, showToast]);
 
   useEffect(() => {
     void loadPosts();
@@ -508,16 +509,11 @@ export const FindRoommateView: React.FC<{
       post.location.toLowerCase().includes(query) ||
       post.owner?.name.toLowerCase().includes(query) ||
       post.owner?.username.toLowerCase().includes(query)
-    ) && (category === 'all' ||
-      (category === 'rooms' && post.rentAmount != null) ||
-      (category === 'roommates' && post.rentAmount == null) ||
-      category === 'recent');
-  }), [category, posts, query]);
+    );
+  }), [posts, query]);
 
-  const displayedPosts = category === 'recent'
-    ? [...filteredPosts].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    : filteredPosts;
-  const displayedRooms = mode === 'feed' && category !== 'roommates'
+  const displayedPosts = filteredPosts;
+  const displayedRooms = mode === 'feed' && category === 'rooms'
     ? [...rooms].sort((first, second) => second.createdAt.localeCompare(first.createdAt))
     : [];
   const hasFeedItems = displayedPosts.length > 0 || displayedRooms.length > 0;
@@ -570,38 +566,38 @@ export const FindRoommateView: React.FC<{
   };
 
   return (
-    <section className="mx-auto w-full max-w-6xl px-4 py-5 pb-24 sm:px-6 lg:px-8">
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <section className="mx-auto w-full max-w-7xl px-3 py-6 pb-24 sm:px-6 lg:px-8">
+      <div className="mb-6 rounded-3xl border border-zinc-800/80 bg-zinc-900/45 p-5 shadow-xl shadow-black/10 sm:p-6">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-gradient-to-r from-rose-500 to-amber-400" />
-            <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl">
+          <div className="flex items-center gap-3">
+            <span className="h-9 w-1 rounded-full bg-gradient-to-b from-rose-400 to-orange-400" />
+            <div>
+            <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">
               {mode === 'feed' ? 'Discover Rooms & Roommates' : 'Find a roommate'}
             </h1>
-          </div>
-          <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
+            <p className="mt-1 text-xs text-zinc-400 sm:text-sm">
             {mode === 'feed'
               ? 'Find your next space and connect with your community.'
               : 'Browse real room posts from people in the community.'}
-          </p>
+            </p>
+            </div>
+          </div>
         </div>
 
         {mode !== 'feed' && (
-          <label className="flex items-center gap-2 rounded-xl border border-white bg-zinc-900 px-3 transition-all focus-within:ring-2 focus-within:ring-white/20">
+          <label className="mt-4 flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 transition-all focus-within:border-rose-400/60 focus-within:ring-2 focus-within:ring-rose-400/10 sm:mt-0">
             <Search className="h-4 w-4 shrink-0 text-white" />
             <input value={search} onChange={(event) => setSearch(event.target.value)} className="min-h-10 w-full bg-transparent text-xs text-white outline-none placeholder:text-zinc-400 sm:w-64" placeholder="Search room posts" aria-label="Search room posts" />
           </label>
         )}
       </div>
       {mode === 'feed' && (
-        <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+        <div className="mt-5 flex gap-2 overflow-x-auto border-t border-zinc-800/70 pt-4 pb-1">
           {([
-            ['all', 'All posts'],
             ['rooms', 'Rooms'],
-            ['roommates', 'Roommates'],
             ['recent', 'Recently added'],
           ] as const).map(([value, label]) => (
-            <button key={value} type="button" onClick={() => setCategory(value)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors ${category === value ? 'border-white bg-white text-zinc-950' : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-500 hover:text-white'}`}>{label}</button>
+            <button key={value} type="button" onClick={() => setCategory(value)} className={`whitespace-nowrap rounded-xl border px-4 py-2 text-[11px] font-bold transition-colors ${category === value ? 'border-rose-400/60 bg-rose-500/15 text-rose-200 shadow-lg shadow-rose-950/20' : 'border-zinc-700 bg-zinc-950/60 text-zinc-400 hover:border-zinc-500 hover:bg-zinc-800 hover:text-white'}`}>{label}</button>
           ))}
         </div>
       )}
@@ -648,12 +644,12 @@ export const FindRoommateView: React.FC<{
 
       <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {displayedRooms.map((room) => (
-          <article key={`room-${room.id}`} className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/80 transition-all hover:-translate-y-0.5 hover:border-zinc-600 hover:bg-zinc-900">
+          <article key={`room-${room.id}`} className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-900/80 shadow-lg shadow-black/10 transition-all hover:-translate-y-1 hover:border-rose-400/30 hover:bg-zinc-900 hover:shadow-rose-950/10">
             <button type="button" onClick={() => { setViewParams({ roomId: room.id }); setActiveView('rooms'); }} className="relative aspect-[4/3] bg-zinc-950 text-left">
-              {room.photos[0] ? <img src={room.photos[0]} alt={room.title} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-xs text-zinc-600">No room photo</div>}
+              {room.photos[0] ? <img src={room.photos[0]} alt={room.title} loading="lazy" decoding="async" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" /> : <div className="grid h-full place-items-center text-xs text-zinc-600">No room photo</div>}
               <span className="absolute bottom-2 left-2 rounded-full bg-zinc-950/85 px-2 py-1 text-[10px] font-bold text-emerald-300">₹{room.rent.toLocaleString('en-IN')}/mo</span>
             </button>
-            <div className="flex flex-1 flex-col gap-2 p-3">
+            <div className="flex flex-1 flex-col gap-2 p-4">
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => openUserProfile(room.owner.username)} className="min-w-0 truncate text-left text-xs font-semibold text-white hover:text-rose-300">{room.owner.name}</button>
                 <span className="ml-auto text-[10px] text-zinc-500">@{room.owner.username}</span>
@@ -673,7 +669,7 @@ export const FindRoommateView: React.FC<{
           return (
             <article
               key={post.id}
-              className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/80 transition-all hover:-translate-y-0.5 hover:border-zinc-600 hover:bg-zinc-900"
+              className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-900/80 shadow-lg shadow-black/10 transition-all hover:-translate-y-1 hover:border-rose-400/30 hover:bg-zinc-900"
             >
               <div className="flex items-center justify-between gap-3 p-3">
                 <button
@@ -730,12 +726,12 @@ export const FindRoommateView: React.FC<{
                     alt={post.caption}
                     loading="lazy"
                     decoding="async"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                 )}
               </div>
 
-              <div className="flex flex-1 flex-col space-y-2 p-3">
+              <div className="flex flex-1 flex-col space-y-3 p-4">
                 <div className="flex items-center justify-between gap-2">
                   {post.location && (
                     <p className="flex min-w-0 items-center gap-1 truncate text-[10px] text-zinc-400">

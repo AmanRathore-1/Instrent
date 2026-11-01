@@ -75,6 +75,28 @@ a:focus-visible {
   outline-offset: 2px;
 }
 
+button {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease, transform 120ms ease, opacity 160ms ease;
+}
+
+button:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+button:not(:disabled):hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
+
+  button:not(:disabled):active {
+    transform: none;
+  }
+}
+
 img {
   display: block;
   max-width: 100%;

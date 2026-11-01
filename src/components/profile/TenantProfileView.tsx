@@ -50,6 +50,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [locationArea, setLocationArea] = useState('');
   const [occupation, setOccupation] = useState('');
   const [instituteOrCompany, setInstituteOrCompany] = useState('');
+  const [isOpenToRoommates, setIsOpenToRoommates] = useState(false);
   const [connectionKind, setConnectionKind] = useState<'followers' | 'following' | null>(null);
   const [connections, setConnections] = useState<Array<User & { isFollowing: boolean }>>([]);
   const [connectionsCursor, setConnectionsCursor] = useState<string | null>(null);
@@ -129,6 +130,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     setLocationArea(user.locationArea || '');
     setOccupation(user.occupation || '');
     setInstituteOrCompany(user.instituteOrCompany || '');
+    setIsOpenToRoommates(user.isOpenToRoommates);
   }, [user]);
 
   const toggleFollow = async () => {
@@ -189,6 +191,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         locationArea,
         occupation: occupation ? occupation as User['occupation'] : null,
         instituteOrCompany,
+        isOpenToRoommates,
       });
       setUser(result.user);
       await refreshUserData();
@@ -227,9 +230,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 pb-24 pt-6 sm:px-8">
+    <div className="mx-auto max-w-5xl px-3 pb-24 pt-4 sm:px-6 sm:pt-8">
       {onBack && (
-        <button onClick={onBack} className="mb-5 text-xs font-medium text-zinc-400 hover:text-white">
+        <button onClick={onBack} className="mb-4 rounded-lg px-3 py-2 text-xs font-semibold text-zinc-400 hover:bg-zinc-900 hover:text-white">
           Back
         </button>
       )}
@@ -239,69 +242,67 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         </div>
       )}
 
-      <header className="flex flex-col gap-6 border-b border-zinc-800/80 pb-8 sm:flex-row sm:gap-12 sm:px-8 sm:pb-10">
-        <div className="flex shrink-0 justify-center sm:w-56 sm:pt-2">
-          <div className="h-28 w-28 rounded-full bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 p-[3px] sm:h-36 sm:w-36">
-            <img
-              src={user.avatar}
-              alt={user.name}
-              className="h-full w-full rounded-full border-[3px] border-zinc-950 object-cover"
-            />
-          </div>
-        </div>
-
-        <div className="min-w-0 flex-1 text-center sm:text-left">
-          <div className="flex flex-col items-center gap-3 sm:flex-row sm:flex-wrap">
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-normal tracking-normal text-white">{user.username}</h1>
-              {user.isVerified && <ShieldCheck className="h-5 w-5 text-sky-400" aria-label="Verified" />}
+      <header className="rounded-3xl border border-zinc-800/90 bg-zinc-900/65 p-5 shadow-2xl shadow-black/10 sm:p-8">
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
+          <div className="flex shrink-0 justify-center sm:justify-start">
+            <div className="h-28 w-28 rounded-full bg-gradient-to-tr from-amber-400 via-rose-500 to-violet-600 p-[3px] shadow-xl shadow-rose-950/30 sm:h-32 sm:w-32">
+              {user.avatar ? (
+                <img src={user.avatar} alt={user.name} className="h-full w-full rounded-full border-[3px] border-zinc-950 object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center rounded-full border-[3px] border-zinc-950 bg-zinc-800 text-4xl font-black text-white">
+                  {user.name.slice(0, 1).toUpperCase()}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="mt-5 flex justify-center gap-8 text-xs sm:justify-start sm:gap-10">
-            <p><strong className="text-white">{posts.length}</strong> posts</p>
-            <button onClick={() => setConnectionKind('followers')} className="hover:text-white">
-              <strong className="text-white">{user.followersCount}</strong> followers
-            </button>
-            <button onClick={() => setConnectionKind('following')} className="hover:text-white">
-              <strong className="text-white">{user.followingCount}</strong> following
-            </button>
-          </div>
+          <div className="min-w-0 flex-1 text-center sm:text-left">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center justify-center gap-2 sm:justify-start">
+                  <h1 className="text-2xl font-black tracking-tight text-white">{user.name}</h1>
+                  {user.isVerified && <ShieldCheck className="h-5 w-5 text-sky-400" aria-label="Verified" />}
+                </div>
+                <p className="mt-1 text-sm text-zinc-500">@{user.username}</p>
+              </div>
+              <div className="hidden gap-2 sm:flex">
+                {isOwnProfile && <span className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-300">Member profile</span>}
+              </div>
+            </div>
 
-          <div className="mt-5 space-y-1 text-xs">
-            <p className="font-semibold text-white">{user.name}</p>
-            {user.bio && <p className="whitespace-pre-wrap text-zinc-200">{user.bio}</p>}
-            {(user.locationArea || user.city) && (
-              <p className="flex items-center justify-center gap-1 text-zinc-400 sm:justify-start">
-                <MapPin className="h-3.5 w-3.5 text-rose-400" />
-                {[user.locationArea, user.city].filter(Boolean).join(', ')}
-              </p>
-            )}
-            {(user.instituteOrCompany || user.occupation) && (
-              <p className="flex items-center justify-center gap-1 text-zinc-400 sm:justify-start">
-                {user.occupation === 'STUDENT'
-                  ? <GraduationCap className="h-3.5 w-3.5 text-amber-400" />
-                  : <Briefcase className="h-3.5 w-3.5 text-sky-400" />}
-                {user.instituteOrCompany || user.occupation?.replaceAll('_', ' ').toLowerCase()}
-              </p>
-            )}
-          </div>
+            <div className="mt-6 grid grid-cols-3 divide-x divide-zinc-800 rounded-2xl border border-zinc-800 bg-zinc-950/40 py-3">
+              <p className="text-center text-[10px] uppercase tracking-wider text-zinc-500"><strong className="block text-lg tracking-normal text-white">{posts.length}</strong>posts</p>
+              <button onClick={() => setConnectionKind('followers')} className="text-center text-[10px] uppercase tracking-wider text-zinc-500 hover:text-white">
+                <strong className="block text-lg tracking-normal text-white">{user.followersCount}</strong>followers
+              </button>
+              <button onClick={() => setConnectionKind('following')} className="text-center text-[10px] uppercase tracking-wider text-zinc-500 hover:text-white">
+                <strong className="block text-lg tracking-normal text-white">{user.followingCount}</strong>following
+              </button>
+            </div>
 
+            <div className="mt-5 space-y-2 text-sm">
+              {user.bio && <p className="mx-auto max-w-2xl whitespace-pre-wrap leading-relaxed text-zinc-200 sm:mx-0">{user.bio}</p>}
+              <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-zinc-400 sm:justify-start">
+                {(user.locationArea || user.city) && <span className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-rose-400" />{[user.locationArea, user.city].filter(Boolean).join(', ')}</span>}
+                {(user.instituteOrCompany || user.occupation) && <span className="inline-flex items-center gap-1.5">{user.occupation === 'STUDENT' ? <GraduationCap className="h-3.5 w-3.5 text-amber-400" /> : <Briefcase className="h-3.5 w-3.5 text-sky-400" />}{user.instituteOrCompany || user.occupation?.replaceAll('_', ' ').toLowerCase()}</span>}
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
-      <div className="mx-auto mt-5 flex w-full max-w-2xl gap-2">
+      <div className="mx-auto mt-4 flex w-full max-w-xl gap-2">
         {isOwnProfile ? (
           <>
             <button
               onClick={() => setIsEditing(true)}
-              className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-700"
+              className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-xs font-bold text-white hover:border-zinc-500 hover:bg-zinc-700"
             >
               Edit profile
             </button>
             <button
               onClick={() => openCreateModal('post')}
-              className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-700"
+              className="flex-1 rounded-xl bg-gradient-to-r from-rose-500 to-orange-500 px-4 py-3 text-xs font-bold text-white hover:brightness-110"
             >
               Share a room
             </button>
@@ -340,9 +341,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           aria-selected={activeContentTab === 'posts'}
           aria-controls="profile-posts-panel"
           onClick={() => setActiveContentTab('posts')}
-          className={`flex min-h-12 min-w-32 items-center justify-center gap-2 border-t-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+          className={`relative flex min-h-12 min-w-32 items-center justify-center gap-2 border-b-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
             activeContentTab === 'posts'
-              ? 'border-zinc-100 text-zinc-100'
+              ? 'border-rose-400 text-zinc-100'
               : 'border-transparent text-zinc-500 hover:text-zinc-200'
           }`}
         >
@@ -356,9 +357,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           aria-selected={activeContentTab === 'reels'}
           aria-controls="profile-reels-panel"
           onClick={() => setActiveContentTab('reels')}
-          className={`flex min-h-12 min-w-32 items-center justify-center gap-2 border-t-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+          className={`relative flex min-h-12 min-w-32 items-center justify-center gap-2 border-b-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
             activeContentTab === 'reels'
-              ? 'border-zinc-100 text-zinc-100'
+              ? 'border-rose-400 text-zinc-100'
               : 'border-transparent text-zinc-500 hover:text-zinc-200'
           }`}
         >
@@ -370,9 +371,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
       {activeContentTab === 'posts' ? (
         <section id="profile-posts-panel" role="tabpanel" aria-labelledby="profile-posts-tab">
           {posts.length > 0 ? (
-            <div className="grid grid-cols-3 gap-1 sm:gap-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
               {posts.map((post) => (
-                <div key={post.id} className="group relative aspect-square overflow-hidden bg-zinc-900">
+                <div key={post.id} className="group relative aspect-[4/3] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-lg shadow-black/10">
                   {post.images?.[0] && (
                     <img
                       src={post.images[0]}
@@ -422,7 +423,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           {reels.length > 0 ? (
             <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 sm:gap-5">
               {reels.map((reel) => (
-                <div key={reel.id} className="relative aspect-square overflow-hidden bg-zinc-900">
+                <div key={reel.id} className="group relative aspect-[3/4] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 shadow-lg shadow-black/10">
                   <video
                     src={reel.videoUrl}
                     poster={reel.thumbnailUrl || undefined}
@@ -430,7 +431,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
                     playsInline
                     preload="metadata"
                     aria-label={reel.caption || 'Room reel'}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                   {reel.caption && (
                     <p className="pointer-events-none absolute inset-x-0 bottom-10 line-clamp-2 bg-gradient-to-t from-black/80 to-transparent px-2 pb-2 pt-5 text-[10px] font-medium text-white">
@@ -522,6 +523,28 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
                 <input value={usernameInput} onChange={(event) => setUsernameInput(event.target.value)} required minLength={3} maxLength={30} pattern="[A-Za-z0-9_.]+" className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-xs text-white" />
               </label>
             </div>
+            <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+              <span>
+                <span className="block text-sm font-semibold text-white">Open to Roommates</span>
+                <span className="mt-1 block text-xs text-zinc-400">Allow other users to discover you as a potential roommate.</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={isOpenToRoommates}
+                onChange={(event) => setIsOpenToRoommates(event.target.checked)}
+                className="peer sr-only"
+              />
+              <span
+                aria-hidden="true"
+                className={`relative h-7 w-12 shrink-0 rounded-full p-1 transition-colors ${isOpenToRoommates ? 'bg-gradient-to-r from-rose-500 to-orange-500' : 'bg-zinc-700'}`}
+              >
+                <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${isOpenToRoommates ? 'translate-x-5' : 'translate-x-0'}`} />
+              </span>
+              <span className="sr-only">{isOpenToRoommates ? 'On' : 'Off'}</span>
+            </label>
+            <p className="text-right text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              {isOpenToRoommates ? 'On' : 'Off'}
+            </p>
             <label className="block text-xs text-zinc-300">
               Bio
               <textarea value={bio} onChange={(event) => setBio(event.target.value)} maxLength={500} rows={3} className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-xs text-white" />

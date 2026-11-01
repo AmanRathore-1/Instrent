@@ -243,6 +243,7 @@ app.get('/api/users/discover', requireUser, async (req, res, next) => {
     const users = await prisma.user.findMany({
       where: {
         id: { not: viewer.id },
+        isOpenToRoommates: true,
         ...(query ? {
           OR: [
             { name: { contains: query, mode: 'insensitive' } },
@@ -842,6 +843,7 @@ const serializeUser = async (user: DbUser, currentUserId?: string) => {
     roles: [activeRole],
     activeRole,
     isVerified: user.isVerified,
+    isOpenToRoommates: user.isOpenToRoommates,
     city: user.city,
     locationArea: user.locationArea,
     occupation: user.occupation || undefined,
@@ -965,6 +967,11 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
       return;
     }
     const userId = typeof req.query.userId === 'string' ? req.query.userId : undefined;
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+    if (category !== undefined && category !== 'rooms' && category !== 'recent') {
+      res.status(400).json({ error: 'Invalid post category.' });
+      return;
+    }
     const cursor = decodeCursor(req.query.cursor);
     if (req.query.cursor !== undefined && !cursor) {
       res.status(400).json({ error: 'Invalid feed cursor.' });
@@ -972,9 +979,13 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
     }
     const rawTake = Number(req.query.take);
     const take = Number.isInteger(rawTake) ? Math.min(Math.max(rawTake, 1), 50) : 20;
+    const now = new Date();
+    const recentSince = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const posts = await prisma.post.findMany({
       where: {
         ...(userId ? { authorId: userId } : {}),
+        ...(category === 'rooms' || category === 'recent' ? { rent: { not: null } } : {}),
+        ...(category === 'recent' ? { createdAt: { gte: recentSince, lte: now } } : {}),
         ...(cursor ? {
           OR: [
             { createdAt: { lt: cursor.createdAt } },
@@ -2194,6 +2205,13 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
       }
     }
     if (body.occupation === null) update.occupation = null;
+    if (body.isOpenToRoommates !== undefined) {
+      if (typeof body.isOpenToRoommates !== 'boolean') {
+        res.status(400).json({ error: 'Open to roommates must be true or false.' });
+        return;
+      }
+      update.isOpenToRoommates = body.isOpenToRoommates;
+    }
     const updatedUser = avatarAsset
       ? await prisma.$transaction(async (transaction) => {
           const attached = await transaction.mediaUpload.updateMany({

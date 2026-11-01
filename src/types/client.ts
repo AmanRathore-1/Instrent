@@ -13,6 +13,7 @@ export interface User {
   roles: UserRole[];
   activeRole: UserRole;
   isVerified: boolean;
+  isOpenToRoommates: boolean;
   city: string;
   locationArea: string;
   occupation?: OccupationType;
@@ -162,5 +163,4 @@ export type ActiveView =
   | 'saved'
   | 'settings'
   | 'user-profile';
-
 
