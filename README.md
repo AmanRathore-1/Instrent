@@ -2,6 +2,10 @@
 
 A React + Vite + TypeScript rental marketplace app.
 
+
+## 🚀 Live Demo
+**Visit Instrent:** [http://instrent-sooty.vercel.app/]
+
 ## Prerequisites
 
 - Node.js 20.19+ or 22.12+
@@ -13,7 +17,6 @@ A React + Vite + TypeScript rental marketplace app.
 ```bash
 npm install
 ```
-
 ## Authentication
 
 RentReel uses email/password accounts with six-digit email verification and password-reset codes delivered through SMTP with Nodemailer. Access tokens are short-lived JWTs held in browser memory; refresh tokens are opaque, stored hashed in PostgreSQL, rotated on every refresh, and sent only as an HttpOnly cookie. The access token is sent to the API and Socket.IO over HTTPS.
