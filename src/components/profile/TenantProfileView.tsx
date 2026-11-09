@@ -40,6 +40,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [reels, setReels] = useState<Reel[]>([]);
   const [activeContentTab, setActiveContentTab] = useState<'posts' | 'reels'>('posts');
   const [isFollowing, setIsFollowing] = useState(false);
+  const [requestStatus, setRequestStatus] = useState<string | null>(null);
+  const [canViewContent, setCanViewContent] = useState(true);
+  const [isPrivate, setIsPrivate] = useState(false);
   const [loading, setLoading] = useState(true);
   const loadingVisible = useDelayedFlag(loading);
   const [loadError, setLoadError] = useState('');
@@ -84,6 +87,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
       setPosts(data.posts || []);
       setReels(data.reels || []);
       setIsFollowing(data.isFollowing);
+      setRequestStatus(data.requestStatus);
+      setCanViewContent(data.canViewContent);
+      setIsPrivate(Boolean(data.user.isPrivate));
     } catch (cause) {
       console.error('Failed to load profile:', cause);
       setLoadError(cause instanceof Error ? cause.message : 'Could not load this profile.');
@@ -134,6 +140,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     setOccupation(user.occupation || '');
     setInstituteOrCompany(user.instituteOrCompany || '');
     setIsOpenToRoommates(user.isOpenToRoommates);
+    setIsPrivate(Boolean(user.isPrivate));
   }, [user]);
 
   useEffect(() => {
@@ -147,6 +154,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     try {
       const result = await api.setFollowing(user.id, !isFollowing);
       setIsFollowing(result.isFollowing);
+      if ('requestStatus' in result) setRequestStatus(result.requestStatus || null);
+      if (result.requestStatus === 'PENDING') { showToast('Follow request sent.', 'success'); return; }
+      setCanViewContent(true);
       setUser((previous) => previous
         ? { ...previous, followersCount: result.followersCount }
         : previous);
@@ -201,6 +211,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         occupation: occupation ? occupation as User['occupation'] : null,
         instituteOrCompany,
         isOpenToRoommates,
+        isPrivate,
       });
       setUser(result.user);
       await refreshUserData();
@@ -319,28 +330,39 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           <>
             <button
               onClick={() => void toggleFollow()}
-              className={`flex-1 rounded-lg px-4 py-2.5 text-xs font-semibold transition ${
-                isFollowing ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-sky-600 text-white hover:bg-sky-500'
+              className={`flex min-h-11 flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-xs font-semibold transition ${
+                isFollowing || requestStatus === 'PENDING' ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-sky-600 text-white hover:bg-sky-500'
               }`}
             >
               <span className="inline-flex items-center gap-1.5">
                 {isFollowing ? <UserCheck className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
-                {isFollowing ? 'Following' : 'Follow'}
+                {isFollowing ? 'Following' : requestStatus === 'PENDING' ? 'Requested' : 'Follow'}
               </span>
             </button>
+            {(!isPrivate || isFollowing) && (
             <button
               onClick={() => void openChatWith(user.id)}
-              className="flex-1 rounded-lg bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-700"
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-zinc-800 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-700"
             >
               <span className="inline-flex items-center gap-1.5">
                 <Send className="h-3.5 w-3.5" />
                 Message
               </span>
             </button>
+            )}
           </>
         )}
       </div>
 
+      {!canViewContent && (
+        <section className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-6 py-12 text-center">
+          <ShieldCheck className="mx-auto h-9 w-9 text-rose-400" />
+          <h2 className="mt-3 text-lg font-bold text-white">This account is private</h2>
+          <p className="mx-auto mt-2 max-w-sm text-sm text-zinc-400">Follow this account and wait for approval to see their posts and reels or send a message.</p>
+        </section>
+      )}
+      {canViewContent && (
+      <>
       <div role="tablist" aria-label="Profile content" className="mb-5 flex w-full justify-center border-b border-zinc-800/80">
         <button
           id="profile-posts-tab"
@@ -508,6 +530,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         </div>
       )}
 
+      </>
+      )}
+
       {selectedPost && <PostDetailModal post={selectedPost} onClose={() => setSelectedPost(null)} />}
 
       {isEditing && (
@@ -551,6 +576,10 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
                 <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${isOpenToRoommates ? 'translate-x-5' : 'translate-x-0'}`} />
               </span>
               <span className="sr-only">{isOpenToRoommates ? 'On' : 'Off'}</span>
+            </label>
+            <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+              <span><span className="block text-sm font-semibold text-white">Private account</span><span className="mt-1 block text-xs text-zinc-400">Only approved followers can see your posts, reels and message you.</span></span>
+              <input type="checkbox" checked={isPrivate} onChange={(event) => setIsPrivate(event.target.checked)} className="h-5 w-5 accent-rose-500" />
             </label>
             <p className="text-right text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
               {isOpenToRoommates ? 'On' : 'Off'}
