@@ -159,9 +159,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
       if ('requestStatus' in result) setRequestStatus(result.requestStatus || null);
       if (result.requestStatus === 'PENDING') { showToast('Follow request sent.', 'success'); return; }
       setCanViewContent(true);
-      setUser((previous) => previous
-        ? { ...previous, followersCount: result.followersCount }
-        : previous);
+      if (typeof result.followersCount === 'number') {
+        setUser((previous) => previous ? { ...previous, followersCount: result.followersCount! } : previous);
+      }
       showToast(result.isFollowing ? `Following ${user.name}` : `Unfollowed ${user.name}`, 'info');
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : 'Could not update follow status.', 'error');
