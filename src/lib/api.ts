@@ -267,6 +267,7 @@ export const api = {
     users: Array<User & {
       isOnline: boolean;
       isFollowing: boolean;
+      requestStatus: string | null;
       lastSeenAt: string | null;
       roommateProfile: { budgetMin: number | null; budgetMax: number | null; moveInAt: string | null; preferences: { lifestyle?: string[] } | null } | null;
     }>;
