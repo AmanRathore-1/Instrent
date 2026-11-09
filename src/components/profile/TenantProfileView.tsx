@@ -43,6 +43,8 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [requestStatus, setRequestStatus] = useState<string | null>(null);
   const [canViewContent, setCanViewContent] = useState(true);
   const [isPrivate, setIsPrivate] = useState(false);
+  const [followRequests, setFollowRequests] = useState<Array<{ id: string; user: User }>>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const loadingVisible = useDelayedFlag(loading);
   const [loadError, setLoadError] = useState('');
@@ -164,6 +166,28 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : 'Could not update follow status.', 'error');
     }
+  };
+
+  const loadFollowRequests = useCallback(async () => {
+    if (!isOwnProfile) return;
+    setRequestsLoading(true);
+    try {
+      const result = await api.getFollowRequests();
+      setFollowRequests(result.requests.map(({ id, user }) => ({ id, user })));
+    } catch (error) {
+      showToastRef.current(error instanceof Error ? error.message : 'Could not load follow requests.', 'error');
+    } finally { setRequestsLoading(false); }
+  }, [isOwnProfile]);
+
+  useEffect(() => { void loadFollowRequests(); }, [loadFollowRequests]);
+
+  const respondToRequest = async (requestId: string, action: 'accept' | 'reject') => {
+    try {
+      await api.respondToFollowRequest(requestId, action);
+      setFollowRequests((items) => items.filter((item) => item.id !== requestId));
+      if (action === 'accept') await loadProfile();
+      showToast(action === 'accept' ? 'Follow request accepted.' : 'Follow request declined.', 'success');
+    } catch (error) { showToast(error instanceof Error ? error.message : 'Could not update follow request.', 'error'); }
   };
 
   const loadConnections = useCallback(async (cursor?: string) => {
@@ -309,6 +333,22 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           </div>
         </div>
       </header>
+
+      {isOwnProfile && (followRequests.length > 0 || requestsLoading) && (
+        <section className="mt-5 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60">
+          <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3"><h2 className="text-sm font-bold text-white">Follow requests</h2><span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-xs font-semibold text-rose-300">{followRequests.length}</span></div>
+          {requestsLoading ? <p className="px-4 py-5 text-xs text-zinc-400">Loading requests…</p> : followRequests.map(({ id, user: requester }) => (
+            <div key={id} className="flex items-center gap-3 border-b border-zinc-800/70 px-4 py-3 last:border-0">
+              <button onClick={() => openUserProfile(requester.username)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-800 text-sm font-bold text-white">{requester.name.slice(0,1)}</span>
+                <span className="min-w-0"><span className="block truncate text-sm font-semibold text-white">{requester.name}</span><span className="block truncate text-xs text-zinc-500">@{requester.username}</span></span>
+              </button>
+              <button onClick={() => void respondToRequest(id, 'reject')} className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-semibold text-zinc-300">Decline</button>
+              <button onClick={() => void respondToRequest(id, 'accept')} className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-semibold text-white">Accept</button>
+            </div>
+          ))}
+        </section>
+      )}
 
       <div className="mx-auto mt-4 flex w-full max-w-2xl flex-col gap-2 sm:mt-5 sm:flex-row sm:justify-end">
         {isOwnProfile ? (
