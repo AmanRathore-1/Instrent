@@ -369,6 +369,7 @@ export const api = {
       moveInAt?: string;
       preferences: { lifestyle: string[] } | null;
       isFollowing: boolean;
+      requestStatus?: string | null;
     }>; nextCursor: string | null }>(`/roommates${query ? `?${query}` : ''}`);
   },
   uploadMedia: async (
