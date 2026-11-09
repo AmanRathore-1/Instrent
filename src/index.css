@@ -22,17 +22,32 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
   font-size: 17px;
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  width: 100%;
+  min-width: 320px;
   min-height: 100vh;
-  overflow-x: hidden;
+  min-height: 100dvh;
+  overflow-x: clip;
   background:
     radial-gradient(circle at top, rgba(244, 63, 94, 0.12), transparent 30%),
     #09090b;
@@ -41,40 +56,38 @@ body {
   line-height: 1.7;
 }
 
-@media (max-width: 767px) {
-  html {
-    font-size: 16px;
-  }
-
-  body {
-    line-height: 1.5;
-  }
-}
-
 #root {
+  width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: clip;
 }
 
 h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.04em;
   line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
-p, span, li, label, button, input, select, textarea {
-  font-size: 1.04rem;
-}
-
+/* Keep Tailwind's per-component text sizing intact. */
 button, input, select, textarea {
-  min-height: 48px;
-  border-radius: 0.9rem;
+  max-width: 100%;
+  min-height: 44px;
+  font: inherit;
 }
 
-.text-sm {
-  font-size: 0.96rem !important;
+input,
+select,
+textarea {
+  min-width: 0;
 }
 
-.text-xs {
-  font-size: 0.8rem !important;
+textarea {
+  resize: vertical;
+}
+
+button {
+  touch-action: manipulation;
 }
 
 button:focus-visible,
@@ -99,8 +112,13 @@ button:not(:disabled):hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  button {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 
   button:not(:disabled):active {
@@ -108,9 +126,16 @@ button:not(:disabled):hover {
   }
 }
 
-img {
-  display: block;
+img,
+video,
+canvas,
+svg {
   max-width: 100%;
+}
+
+img,
+video {
+  height: auto;
 }
 
 ::-webkit-scrollbar {
@@ -163,6 +188,32 @@ img {
 
 .property-map-marker {
   filter: drop-shadow(0 8px 18px rgba(244, 63, 94, 0.4));
+}
+
+@media (max-width: 767px) {
+  html {
+    font-size: 16px;
+  }
+
+  body {
+    line-height: 1.5;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .leaflet-container {
+    border-radius: 1rem;
+  }
+}
+
+@media (max-width: 374px) {
+  html {
+    font-size: 15px;
+  }
 }
 
 @keyframes pulse-heart {
