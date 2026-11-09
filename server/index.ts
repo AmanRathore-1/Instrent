@@ -855,6 +855,7 @@ const serializeUser = async (user: DbUser, currentUserId?: string) => {
     activeRole,
     isVerified: user.isVerified,
     isOpenToRoommates: user.isOpenToRoommates,
+    isPrivate: user.isPrivate,
     city: user.city,
     locationArea: user.locationArea,
     occupation: user.occupation || undefined,
@@ -863,6 +864,18 @@ const serializeUser = async (user: DbUser, currentUserId?: string) => {
     followingCount,
     createdAt: user.createdAt.toISOString(),
   };
+};
+
+
+const canViewPrivateContent = async (viewerId: string, ownerId: string) => {
+  if (viewerId === ownerId) return true;
+  const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { isPrivate: true } });
+  if (!owner) return false;
+  if (!owner.isPrivate) return true;
+  return Boolean(await prisma.follow.findUnique({
+    where: { followerId_followedId: { followerId: viewerId, followedId: ownerId } },
+    select: { id: true },
+  }));
 };
 
 const findSignedInUser = async (req: Request, res: Response) => {
@@ -2093,7 +2106,7 @@ app.get('/api/users/:username', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'User not found.' });
       return;
     }
-    const [posts, reels, isFollowing] = await Promise.all([
+    const [posts, reels, isFollowing, pendingRequest] = await Promise.all([
       prisma.post.findMany({
         where: { authorId: user.id },
         include: {
@@ -2116,18 +2129,17 @@ app.get('/api/users/:username', requireUser, async (req, res, next) => {
         orderBy: { createdAt: 'desc' },
         take: 100,
       }),
-      prisma.follow.findUnique({
-        where: { followerId_followedId: { followerId: signedInUser.id, followedId: user.id } },
-      }),
+      prisma.follow.findUnique({ where: { followerId_followedId: { followerId: signedInUser.id, followedId: user.id } } }),
+      prisma.followRequest.findUnique({ where: { requesterId_recipientId: { requesterId: signedInUser.id, recipientId: user.id } }, select: { status: true } }),
     ]);
+    const canView = !user.isPrivate || Boolean(isFollowing) || signedInUser.id === user.id;
     res.json({
       user: await serializeUser(user, signedInUser.id),
       isFollowing: Boolean(isFollowing),
-      posts: await Promise.all(posts.map(async (post) => ({
-        ...await serializePost(post, signedInUser.id),
-        isFollowingOwner: Boolean(isFollowing),
-      }))),
-      reels: await Promise.all(reels.map((reel) => serializeReel(reel, signedInUser.id))),
+      requestStatus: pendingRequest?.status ?? null,
+      canViewContent: canView,
+      posts: canView ? await Promise.all(posts.map(async (post) => ({ ...await serializePost(post, signedInUser.id), isFollowingOwner: Boolean(isFollowing) }))) : [],
+      reels: canView ? await Promise.all(reels.map((reel) => serializeReel(reel, signedInUser.id))) : [],
     });
   } catch (error) {
     next(error);
@@ -2268,6 +2280,13 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
       }
     }
     if (body.occupation === null) update.occupation = null;
+    if (body.isPrivate !== undefined) {
+      if (typeof body.isPrivate !== 'boolean') {
+        res.status(400).json({ error: 'Private account must be true or false.' });
+        return;
+      }
+      update.isPrivate = body.isPrivate;
+    }
     if (body.isOpenToRoommates !== undefined) {
       if (typeof body.isOpenToRoommates !== 'boolean') {
         res.status(400).json({ error: 'Open to roommates must be true or false.' });
@@ -2304,6 +2323,49 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
   }
 });
 
+app.get('/api/follow-requests', requireUser, async (_req, res, next) => {
+  try {
+    const userId = res.locals.userId as string;
+    const requests = await prisma.followRequest.findMany({ where: { recipientId: userId, status: 'PENDING' }, include: { requester: true }, orderBy: { createdAt: 'desc' }, take: 100 });
+    res.json({ requests: await Promise.all(requests.map(async (item) => ({ id: item.id, status: item.status, createdAt: item.createdAt.toISOString(), user: await serializeUser(item.requester, userId) }))) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/follow-requests/:requestId/:action', requireUser, async (req, res, next) => {
+  try {
+    const userId = res.locals.userId as string;
+    const requestId = routeParam(req.params.requestId);
+    const action = routeParam(req.params.action);
+    if (!requestId || !['accept', 'reject'].includes(action || '')) { res.status(400).json({ error: 'Invalid follow request action.' }); return; }
+    const request = await prisma.followRequest.findFirst({ where: { id: requestId, recipientId: userId, status: 'PENDING' } });
+    if (!request) { res.status(404).json({ error: 'Pending follow request not found.' }); return; }
+    if (action === 'accept') {
+      await prisma.$transaction(async (tx) => {
+        await tx.follow.createMany({ data: [{ followerId: request.requesterId, followedId: userId }], skipDuplicates: true });
+        await tx.followRequest.update({ where: { id: requestId }, data: { status: 'ACCEPTED' } });
+      });
+      const recipient = await prisma.user.findUnique({ where: { id: userId }, select: { username: true, name: true } });
+      await prisma.notification.create({ data: { userId: request.requesterId, type: 'FOLLOW_ACCEPTED', title: 'Follow request accepted', message: `${recipient?.name || 'A user'} accepted your follow request.`, metadata: { username: recipient?.username }, dedupeKey: `follow-accepted:${requestId}` } });
+      io.to(`user:${request.requesterId}`).emit('notification:new');
+      io.to(`user:${request.requesterId}`).emit('profile:access-changed', { userId });
+      res.json({ success: true, status: 'ACCEPTED' });
+    } else {
+      await prisma.followRequest.update({ where: { id: requestId }, data: { status: 'REJECTED' } });
+      res.json({ success: true, status: 'REJECTED' });
+    }
+  } catch (error) { next(error); }
+});
+
+app.delete('/api/follow-requests/:targetId', requireUser, async (req, res, next) => {
+  try {
+    const requesterId = res.locals.userId as string;
+    const recipientId = routeParam(req.params.targetId);
+    if (!recipientId) { res.status(400).json({ error: 'Invalid user id.' }); return; }
+    await prisma.followRequest.deleteMany({ where: { requesterId, recipientId, status: 'PENDING' } });
+    res.json({ success: true });
+  } catch (error) { next(error); }
+});
+
 app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
   try {
     const user = await findSignedInUser(req, res);
@@ -2320,9 +2382,57 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
       res.status(400).json({ error: 'You cannot follow your own profile.' });
       return;
     }
-    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true, isPrivate: true } });
     if (!target) {
       res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+    if (target.isPrivate) {
+      const existing = await prisma.follow.findUnique({ where: { followerId_followedId: { followerId: user.id, followedId: targetId } } });
+      if (existing) {
+        res.json({ success: true, isFollowing: true, requestStatus: 'ACCEPTED' });
+        return;
+      }
+      const request = await prisma.followRequest.upsert({
+        where: { requesterId_recipientId: { requesterId: user.id, recipientId: targetId } },
+        create: { requesterId: user.id, recipientId: targetId, status: 'PENDING' },
+        update: { status: 'PENDING', updatedAt: new Date() },
+      });
+      await prisma.notification.create({ data: {
+        userId: targetId, type: 'FOLLOW_REQUEST', title: 'Follow request',
+        message: `${user.name} requested to follow you.`, metadata: { requestId: request.id, username: user.username },
+        dedupeKey: `follow-request:${request.id}:${request.updatedAt.getTime()}`,
+      } });
+      io.to(`user:${targetId}`).emit('notification:new');
+      res.json({ success: true, isFollowing: false, requestStatus: 'PENDING' });
+      return;
+    }
+    const created = await prisma.follow.createMany({
+      data: [{ followerId: user.id, followedId: targetId }],
+      skipDuplicates: true,
+    });
+    if (!target) {
+      res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+    if (target.isPrivate) {
+      const existing = await prisma.follow.findUnique({ where: { followerId_followedId: { followerId: user.id, followedId: targetId } } });
+      if (existing) {
+        res.json({ success: true, isFollowing: true, requestStatus: 'ACCEPTED' });
+        return;
+      }
+      const request = await prisma.followRequest.upsert({
+        where: { requesterId_recipientId: { requesterId: user.id, recipientId: targetId } },
+        create: { requesterId: user.id, recipientId: targetId, status: 'PENDING' },
+        update: { status: 'PENDING', updatedAt: new Date() },
+      });
+      await prisma.notification.create({ data: {
+        userId: targetId, type: 'FOLLOW_REQUEST', title: 'Follow request',
+        message: `${user.name} requested to follow you.`, metadata: { requestId: request.id, username: user.username },
+        dedupeKey: `follow-request:${request.id}:${request.updatedAt.getTime()}`,
+      } });
+      io.to(`user:${targetId}`).emit('notification:new');
+      res.json({ success: true, isFollowing: false, requestStatus: 'PENDING' });
       return;
     }
     const created = await prisma.follow.createMany({
