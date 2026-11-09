@@ -86,6 +86,20 @@ export function createSocketServer(httpServer: HttpServer): Server {
           select: { id: true },
         });
         if (membership) {
+          const otherParticipant = await prisma.conversationParticipant.findFirst({
+            where: { conversationId: parsed.data.conversationId, userId: { not: userId } },
+            select: { user: { select: { id: true, isPrivate: true } } },
+          });
+          if (otherParticipant?.user.isPrivate) {
+            const acceptedFollow = await prisma.follow.findUnique({
+              where: { followerId_followedId: { followerId: userId, followedId: otherParticipant.user.id } },
+              select: { id: true },
+            });
+            if (!acceptedFollow) {
+              acknowledge?.({ success: false });
+              return;
+            }
+          }
           socket.join(`conversation:${parsed.data.conversationId}`);
           joinedConversations.add(parsed.data.conversationId);
           const otherParticipant = await prisma.conversationParticipant.findFirst({
