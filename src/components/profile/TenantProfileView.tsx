@@ -154,11 +154,17 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const toggleFollow = async () => {
     if (!user || isOwnProfile) return;
     try {
+      if (requestStatus === 'PENDING') {
+        await api.cancelFollowRequest(user.id);
+        setRequestStatus(null);
+        showToast('Follow request cancelled.', 'info');
+        return;
+      }
       const result = await api.setFollowing(user.id, !isFollowing);
       setIsFollowing(result.isFollowing);
       if ('requestStatus' in result) setRequestStatus(result.requestStatus || null);
       if (result.requestStatus === 'PENDING') { showToast('Follow request sent.', 'success'); return; }
-      setCanViewContent(true);
+      setCanViewContent(!user.isPrivate || result.isFollowing);
       if (typeof result.followersCount === 'number') {
         setUser((previous) => previous ? { ...previous, followersCount: result.followersCount! } : previous);
       }
@@ -376,7 +382,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
             >
               <span className="inline-flex items-center gap-1.5">
                 {isFollowing ? <UserCheck className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
-                {isFollowing ? 'Following' : requestStatus === 'PENDING' ? 'Requested' : 'Follow'}
+                {isFollowing ? 'Following' : requestStatus === 'PENDING' ? 'Requested · Cancel' : 'Follow'}
               </span>
             </button>
             {(!isPrivate || isFollowing) && (
