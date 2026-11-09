@@ -1,4 +1,7 @@
 ALTER TABLE "rentreel"."User" ADD COLUMN IF NOT EXISTS "isPrivate" BOOLEAN NOT NULL DEFAULT false;
+UPDATE "rentreel"."User" SET "isPrivate" = false WHERE "isPrivate" IS NULL;
+ALTER TABLE "rentreel"."User" ALTER COLUMN "isPrivate" SET DEFAULT false;
+ALTER TABLE "rentreel"."User" ALTER COLUMN "isPrivate" SET NOT NULL;
 
 CREATE TABLE "rentreel"."FollowRequest" (
   "id" UUID NOT NULL,
