@@ -265,7 +265,7 @@ app.get('/api/users/discover', requireUser, async (req, res, next) => {
         } : {}),
       },
       select: {
-        id: true, username: true, name: true, avatar: true, bio: true, city: true,
+        id: true, username: true, name: true, avatar: true, bio: true, city: true, isPrivate: true,
         locationArea: true, occupation: true, instituteOrCompany: true,
         lastSeenAt: true, roommateProfile: { select: { budgetMin: true, budgetMax: true, moveInAt: true, preferences: true } },
         followers: { where: { followerId: viewer.id }, select: { id: true } },
@@ -1007,6 +1007,7 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
     const recentSince = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const posts = await prisma.post.findMany({
       where: {
+        author: { OR: [{ isPrivate: false }, { id: signedInUser.id }, { followers: { some: { followerId: signedInUser.id } } }] },
         ...(userId ? { authorId: userId } : {}),
         ...(category === 'rooms' || category === 'recent' ? { rent: { not: null } } : {}),
         ...(category === 'recent' ? { createdAt: { gte: recentSince, lte: now } } : {}),
@@ -1077,12 +1078,15 @@ app.get('/api/reels', requireUser, async (req, res, next) => {
     const rawTake = Number(req.query.take);
     const take = Number.isInteger(rawTake) ? Math.min(Math.max(rawTake, 1), 30) : 10;
     const reels = await prisma.reel.findMany({
-      where: cursor ? {
+      where: {
+        author: { OR: [{ isPrivate: false }, { id: user.id }, { followers: { some: { followerId: user.id } } }] },
+        ...(cursor ? {
         OR: [
           { createdAt: { lt: cursor.createdAt } },
           { createdAt: cursor.createdAt, id: { lt: cursor.id } },
         ],
-      } : undefined,
+      } : {}),
+      },
       include: {
         author: true,
         _count: { select: { likes: true, comments: true } },
@@ -2411,34 +2415,6 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
       data: [{ followerId: user.id, followedId: targetId }],
       skipDuplicates: true,
     });
-    if (!target) {
-      res.status(404).json({ error: 'User not found.' });
-      return;
-    }
-    if (target.isPrivate) {
-      const existing = await prisma.follow.findUnique({ where: { followerId_followedId: { followerId: user.id, followedId: targetId } } });
-      if (existing) {
-        res.json({ success: true, isFollowing: true, requestStatus: 'ACCEPTED' });
-        return;
-      }
-      const request = await prisma.followRequest.upsert({
-        where: { requesterId_recipientId: { requesterId: user.id, recipientId: targetId } },
-        create: { requesterId: user.id, recipientId: targetId, status: 'PENDING' },
-        update: { status: 'PENDING', updatedAt: new Date() },
-      });
-      await prisma.notification.create({ data: {
-        userId: targetId, type: 'FOLLOW_REQUEST', title: 'Follow request',
-        message: `${user.name} requested to follow you.`, metadata: { requestId: request.id, username: user.username },
-        dedupeKey: `follow-request:${request.id}:${request.updatedAt.getTime()}`,
-      } });
-      io.to(`user:${targetId}`).emit('notification:new');
-      res.json({ success: true, isFollowing: false, requestStatus: 'PENDING' });
-      return;
-    }
-    const created = await prisma.follow.createMany({
-      data: [{ followerId: user.id, followedId: targetId }],
-      skipDuplicates: true,
-    });
     if (created.count > 0) {
       const follow = await prisma.follow.findUniqueOrThrow({
         where: { followerId_followedId: { followerId: user.id, followedId: targetId } },
@@ -2570,7 +2546,11 @@ app.post('/api/conversations', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'User not found.' });
       return;
     }
-    const pairKey = [user.id, otherUser.id].sort().join(':');
+    if (!(await canViewPrivateContent(user.id, otherUser.id))) {
+      res.status(403).json({ error: 'This account is private. Send a follow request and wait for approval before messaging.', code: 'FOLLOW_REQUIRED' });
+      return;
+    }
+        const pairKey = [user.id, otherUser.id].sort().join(':');
     let conversation = await prisma.conversation.findUnique({
       where: { pairKey },
       include: conversationInclude,
@@ -2745,6 +2725,10 @@ app.post('/api/messages', requireUser, async (req, res, next) => {
       return;
     }
     const { conversationId, receiverId, text, idempotencyKey, context } = parsed.data;
+    if (!(await canViewPrivateContent(user.id, receiverId))) {
+      res.status(403).json({ error: 'Follow request approval is required before messaging.', code: 'FOLLOW_REQUIRED' });
+      return;
+    }
     const memberships = await prisma.conversationParticipant.findMany({
       where: { conversationId, userId: { in: [user.id, receiverId] } },
       select: { userId: true },
