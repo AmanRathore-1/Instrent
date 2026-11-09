@@ -24,6 +24,7 @@ model User {
   activeRole          String                    @default("TENANT")
   isVerified          Boolean                   @default(false)
   isOpenToRoommates   Boolean                   @default(false)
+  isPrivate           Boolean                   @default(false)
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
   lastSeenAt          DateTime?
@@ -33,6 +34,8 @@ model User {
   likes               Like[]
   following           Follow[]                  @relation("Following")
   followers           Follow[]                  @relation("Followers")
+  sentFollowRequests  FollowRequest[]            @relation("FollowRequestSender")
+  receivedFollowRequests FollowRequest[]        @relation("FollowRequestReceiver")
   roommateProfile     RoommateProfile?
   rooms               Room[]
   savedRooms          SavedRoom[]
@@ -207,6 +210,23 @@ model Follow {
 
   @@unique([followerId, followedId])
   @@index([followedId, createdAt, id])
+  @@schema("rentreel")
+}
+
+
+model FollowRequest {
+  id          String   @id @default(uuid()) @db.Uuid
+  requesterId String   @db.Uuid
+  recipientId String   @db.Uuid
+  status      String   @default("PENDING") @db.VarChar(20)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  requester   User     @relation("FollowRequestSender", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipient   User     @relation("FollowRequestReceiver", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, recipientId])
+  @@index([recipientId, status, createdAt])
+  @@index([requesterId, status, createdAt])
   @@schema("rentreel")
 }
 
