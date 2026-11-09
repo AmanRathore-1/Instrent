@@ -88,11 +88,11 @@ export function createSocketServer(httpServer: HttpServer): Server {
         if (membership) {
           const otherParticipant = await prisma.conversationParticipant.findFirst({
             where: { conversationId: parsed.data.conversationId, userId: { not: userId } },
-            select: { user: { select: { id: true, isPrivate: true } } },
+            select: { userId: true, user: { select: { isPrivate: true } } },
           });
           if (otherParticipant?.user.isPrivate) {
             const acceptedFollow = await prisma.follow.findUnique({
-              where: { followerId_followedId: { followerId: userId, followedId: otherParticipant.user.id } },
+              where: { followerId_followedId: { followerId: userId, followedId: otherParticipant.userId } },
               select: { id: true },
             });
             if (!acceptedFollow) {
@@ -102,10 +102,6 @@ export function createSocketServer(httpServer: HttpServer): Server {
           }
           socket.join(`conversation:${parsed.data.conversationId}`);
           joinedConversations.add(parsed.data.conversationId);
-          const otherParticipant = await prisma.conversationParticipant.findFirst({
-            where: { conversationId: parsed.data.conversationId, userId: { not: userId } },
-            select: { userId: true },
-          });
           if (otherParticipant) {
             const otherSockets = await io.in(`user:${otherParticipant.userId}`).fetchSockets();
             socket.emit('presence:snapshot', {
