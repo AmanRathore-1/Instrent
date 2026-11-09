@@ -1376,6 +1376,9 @@ app.get('/api/reels/:reelId/comments', requireUser, async (req, res, next) => {
       res.status(400).json({ error: 'Invalid comment cursor.' });
       return;
     }
+    const targetReel = await prisma.reel.findUnique({ where: { id: reelId }, select: { authorId: true } });
+    if (!targetReel) { res.status(404).json({ error: 'Reel not found.' }); return; }
+    if (!(await canViewPrivateContent(res.locals.userId as string, targetReel.authorId))) { res.status(403).json({ error: 'Follow approval is required.', code: 'FOLLOW_REQUIRED' }); return; }
     const comments = await prisma.comment.findMany({
       where: {
         reelId,
@@ -2004,6 +2007,9 @@ app.get('/api/posts/:postId/comments', requireUser, async (req, res, next) => {
     }
     const rawTake = Number(req.query.take);
     const take = Number.isInteger(rawTake) ? Math.min(Math.max(rawTake, 1), 100) : 30;
+    const targetPost = await prisma.post.findUnique({ where: { id: postId }, select: { authorId: true } });
+    if (!targetPost) { res.status(404).json({ error: 'Post not found.' }); return; }
+    if (!(await canViewPrivateContent(res.locals.userId as string, targetPost.authorId))) { res.status(403).json({ error: 'Follow approval is required.', code: 'FOLLOW_REQUIRED' }); return; }
     const comments = await prisma.comment.findMany({
       where: {
         postId,
@@ -2611,6 +2617,10 @@ app.get('/api/conversations/:conversationId/messages', requireUser, async (req, 
     if (!membership || !user) {
       res.status(user ? 404 : 401).json({ error: 'Conversation not found.' });
       return;
+    }
+    const otherParticipant = membership.conversation.participants.find((participant) => participant.user.id !== user.id);
+    if (otherParticipant && !(await canViewPrivateContent(user.id, otherParticipant.user.id))) {
+      res.status(403).json({ error: 'Follow approval is required to access this conversation.', code: 'FOLLOW_REQUIRED' }); return;
     }
     const cursor = decodeCursor(req.query.cursor);
     if (req.query.cursor !== undefined && !cursor) {
