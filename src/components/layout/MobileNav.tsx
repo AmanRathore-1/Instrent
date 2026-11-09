@@ -13,16 +13,16 @@ export const MobileNav: React.FC = () => {
   } = useApp();
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] items-start justify-around border-t border-zinc-800 bg-zinc-950/95 px-1 pt-1.5 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] w-full items-start justify-around gap-0 border-t border-zinc-800 bg-zinc-950/95 px-0.5 pt-1.5 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
       {/* Home */}
       <button
         onClick={() => setActiveView('home')}
-        className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${
+        className={`flex h-12 min-w-0 flex-1 flex-col items-center justify-center rounded-xl px-0.5 transition-colors ${
           activeView === 'home' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
         }`}
       >
         <Home className="w-5 h-5 stroke-[2.2]" />
-        <span className="text-[10px] mt-0.5 font-semibold">Home</span>
+        <span className="mt-0.5 max-w-full truncate text-[9px] font-semibold min-[375px]:text-[10px]">Home</span>
       </button>
 
       {/* Rooms */}
@@ -51,7 +51,7 @@ export const MobileNav: React.FC = () => {
       <button
         onClick={() => openCreateModal('post')}
         title="Post a room"
-        className="flex flex-col items-center justify-center -mt-4 w-12 h-12 rounded-full bg-gradient-to-tr from-rose-500 via-pink-500 to-amber-400 text-white shadow-lg shadow-rose-500/30 active:scale-95 transition-transform"
+        className="flex h-12 w-12 shrink-0 flex-col items-center justify-center -mt-4 rounded-full bg-gradient-to-tr from-rose-500 via-pink-500 to-amber-400 text-white shadow-lg shadow-rose-500/30 active:scale-95 transition-transform"
       >
         <PlusCircle className="w-6 h-6 stroke-[2.5]" />
       </button>
@@ -59,7 +59,7 @@ export const MobileNav: React.FC = () => {
       {/* Messages */}
       <button
         onClick={() => setActiveView('messages')}
-        className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors relative ${
+        className={`relative flex h-12 min-w-0 flex-1 flex-col items-center justify-center rounded-xl px-0.5 transition-colors ${
           activeView === 'messages' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
         }`}
       >
