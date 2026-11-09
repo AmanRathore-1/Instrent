@@ -39,12 +39,12 @@ const AppContent: React.FC = () => {
   }, [setActiveView]);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col md:flex-row antialiased selection:bg-rose-500/30 selection:text-rose-200">
+    <div className="flex min-h-screen min-h-dvh w-full min-w-0 flex-col bg-zinc-950 text-zinc-100 antialiased selection:bg-rose-500/30 selection:text-rose-200 md:flex-row">
       {/* Desktop Left Navigation Sidebar */}
       <Sidebar />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+      <div className="flex min-h-screen min-h-dvh min-w-0 flex-1 flex-col">
         {/* Top Header */}
         <Header
           onOpenSearch={openSearch}
@@ -52,10 +52,8 @@ const AppContent: React.FC = () => {
         />
 
         {/* View Routing */}
-        <main className="flex-1 overflow-x-hidden pb-20 md:pb-0">
-          <Suspense
-            fallback={<PageLoader />}
-          >
+        <main className="min-h-0 min-w-0 flex-1 overflow-x-clip pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
+          <Suspense fallback={<PageLoader />}>
             {activeView === 'home' && <HomeView />}
             {activeView === 'reels' && <ReelsView />}
             {(activeView === 'find-property' || activeView === 'explore') && <FindRoommateView />}
@@ -94,11 +92,11 @@ const AppContent: React.FC = () => {
 
       {/* Lightweight Floating Toast Notifications */}
       {toasts.length > 0 && (
-        <div className="fixed bottom-20 md:bottom-6 right-6 z-50 space-y-2 pointer-events-none">
+        <div className="pointer-events-none fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 z-50 space-y-2 sm:right-6 md:bottom-6">
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto px-4 py-2.5 rounded-2xl text-xs font-bold shadow-2xl backdrop-blur-md border animate-in slide-in-from-bottom-2 ${
+              className={`pointer-events-auto max-w-[calc(100vw-1.5rem)] break-words rounded-2xl border px-4 py-2.5 text-xs font-bold shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-2 ${
                 toast.type === 'success'
                   ? 'bg-zinc-900/95 text-emerald-300 border-emerald-500/30'
                   : toast.type === 'error'
