@@ -798,7 +798,7 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
             ],
           } : {}),
         },
-        include: { user: { select: { id: true, username: true, name: true, avatar: true, bio: true, city: true, locationArea: true, occupation: true, instituteOrCompany: true } } },
+        include: { user: { select: { id: true, username: true, name: true, avatar: true, bio: true, city: true, locationArea: true, occupation: true, instituteOrCompany: true, isPrivate: true } } },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 31,
       });
@@ -813,6 +813,11 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
           })
         : [];
       const followedUserIds = new Set(followedUsers.map((follow) => follow.followedId));
+      const requests = items.length ? await prisma.followRequest.findMany({
+        where: { requesterId: viewer.id, recipientId: { in: items.map((profile) => profile.userId) }, status: 'PENDING' },
+        select: { recipientId: true },
+      }) : [];
+      const requestedUserIds = new Set(requests.map((request) => request.recipientId));
       res.json({
         profiles: items.map((profile) => ({
           id: profile.id,
@@ -822,6 +827,7 @@ export function createRoomRouter({ prisma, requireUser, writeLimiter, io }: Room
           moveInAt: profile.moveInAt?.toISOString(),
           preferences: profile.preferences,
           isFollowing: followedUserIds.has(profile.userId),
+          requestStatus: requestedUserIds.has(profile.userId) ? 'PENDING' : null,
         })),
         nextCursor: profiles.length > 30 && items.length
           ? encodeRoomCursor({ id: items[items.length - 1].id, createdAt: items[items.length - 1].createdAt, rent: 0 })
