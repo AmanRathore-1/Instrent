@@ -260,6 +260,9 @@ export const api = {
     },
   },
   heartbeat: () => fetchJson<{ success: boolean }>('/presence/heartbeat', { method: 'POST' }),
+  getFollowRequests: () => fetchJson<{ requests: Array<{ id: string; status: string; createdAt: string; user: User }> }>('/follow-requests'),
+  respondToFollowRequest: (requestId: string, action: 'accept' | 'reject') => fetchJson<{ success: boolean; status: string }>(`/follow-requests/${requestId}/${action}`, { method: 'POST' }),
+  cancelFollowRequest: (targetId: string) => fetchJson<{ success: boolean }>(`/follow-requests/${targetId}`, { method: 'DELETE' }),
   discoverUsers: (query?: string) => fetchJson<{
     users: Array<User & {
       isOnline: boolean;
