@@ -134,7 +134,9 @@ export interface Notification {
     | 'COMMENT'
     | 'ROOM_INQUIRY'
     | 'LIKE'
-    | 'NEW_FOLLOWER';
+    | 'NEW_FOLLOWER'
+    | 'FOLLOW_REQUEST'
+    | 'FOLLOW_ACCEPTED';
   title: string;
   message: string;
   linkUrl?: string;
