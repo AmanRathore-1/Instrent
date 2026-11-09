@@ -2414,7 +2414,8 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
         dedupeKey: `follow-request:${request.id}:${request.updatedAt.getTime()}`,
       } });
       io.to(`user:${targetId}`).emit('notification:new');
-      res.json({ success: true, isFollowing: false, requestStatus: 'PENDING' });
+      const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
+      res.json({ success: true, isFollowing: false, requestStatus: 'PENDING', followersCount });
       return;
     }
     const created = await prisma.follow.createMany({
