@@ -14,6 +14,7 @@ export interface User {
   activeRole: UserRole;
   isVerified: boolean;
   isOpenToRoommates: boolean;
+  isPrivate: boolean;
   city: string;
   locationArea: string;
   occupation?: OccupationType;
