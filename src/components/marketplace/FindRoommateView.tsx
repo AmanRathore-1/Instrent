@@ -546,7 +546,7 @@ export const FindRoommateView: React.FC<{
                 owner: item.owner
                   ? {
                       ...item.owner,
-                      followersCount: result.followersCount,
+                      followersCount: result.followersCount ?? item.owner.followersCount,
                     }
                   : item.owner,
               }
