@@ -215,7 +215,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
     try {
       const result = await api.setFollowing(connection.id, !connection.isFollowing);
       setConnections((items) => items.map((item) => item.id === connection.id
-        ? { ...item, isFollowing: result.isFollowing, followersCount: result.followersCount }
+        ? { ...item, isFollowing: result.isFollowing, ...(typeof result.followersCount === 'number' ? { followersCount: result.followersCount } : {}) }
         : item));
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : 'Could not update follow status.', 'error');
