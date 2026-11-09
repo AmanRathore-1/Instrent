@@ -239,7 +239,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-3 pb-24 pt-4 sm:px-6 sm:pt-8">
+    <div className="mx-auto w-full max-w-6xl min-w-0 px-3 pb-24 pt-4 sm:px-6 sm:pt-8 lg:px-8">
       {onBack && (
         <button onClick={onBack} className="mb-4 rounded-lg px-3 py-2 text-xs font-semibold text-zinc-400 hover:bg-zinc-900 hover:text-white">
           Back
@@ -251,10 +251,10 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         </div>
       )}
 
-      <header className="rounded-3xl border border-zinc-800/90 bg-zinc-900/65 p-5 shadow-2xl shadow-black/10 sm:p-8">
-        <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-8">
+      <header className="rounded-3xl border border-zinc-800/90 bg-zinc-900/65 p-4 shadow-2xl shadow-black/10 sm:p-6 lg:p-8">
+        <div className="flex min-w-0 flex-col gap-5 sm:flex-row sm:items-start sm:gap-7 lg:gap-9">
           <div className="flex shrink-0 justify-center sm:justify-start">
-            <div className="h-28 w-28 rounded-full bg-gradient-to-tr from-amber-400 via-rose-500 to-violet-600 p-[3px] shadow-xl shadow-rose-950/30 sm:h-32 sm:w-32">
+            <div className="h-24 w-24 rounded-full bg-gradient-to-tr from-amber-400 via-rose-500 to-violet-600 p-[3px] shadow-xl shadow-rose-950/30 sm:h-28 sm:w-28 lg:h-32 lg:w-32">
               {user.avatar ? (
                 <img src={user.avatar} alt={user.name} className="h-full w-full rounded-full border-[3px] border-zinc-950 object-cover" />
               ) : (
@@ -269,7 +269,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="flex items-center justify-center gap-2 sm:justify-start">
-                  <h1 className="text-2xl font-black tracking-tight text-white">{user.name}</h1>
+                  <h1 className="break-words text-xl font-black tracking-tight text-white sm:text-2xl">{user.name}</h1>
                   {user.isVerified && <ShieldCheck className="h-5 w-5 text-sky-400" aria-label="Verified" />}
                 </div>
                 <p className="mt-1 text-sm text-zinc-500">@{user.username}</p>
@@ -279,7 +279,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-3 divide-x divide-zinc-800 rounded-2xl border border-zinc-800 bg-zinc-950/40 py-3">
+            <div className="mt-5 grid grid-cols-3 divide-x divide-zinc-800 rounded-2xl border border-zinc-800 bg-zinc-950/40 py-3 sm:mt-6 sm:py-4">
               <p className="text-center text-[10px] uppercase tracking-wider text-zinc-500"><strong className="block text-lg tracking-normal text-white">{posts.length}</strong>posts</p>
               <button onClick={() => setConnectionKind('followers')} className="text-center text-[10px] uppercase tracking-wider text-zinc-500 hover:text-white">
                 <strong className="block text-lg tracking-normal text-white">{user.followersCount}</strong>followers
@@ -299,18 +299,18 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         </div>
       </header>
 
-      <div className="mx-auto mt-4 flex w-full max-w-xl gap-2">
+      <div className="mx-auto mt-4 flex w-full max-w-2xl flex-col gap-2 sm:mt-5 sm:flex-row sm:justify-end">
         {isOwnProfile ? (
           <>
             <button
               onClick={() => setIsEditing(true)}
-              className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-xs font-bold text-white hover:border-zinc-500 hover:bg-zinc-700"
+              className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-sm font-semibold text-white transition-colors hover:border-zinc-500 hover:bg-zinc-700 sm:max-w-56"
             >
               Edit profile
             </button>
             <button
               onClick={() => openCreateModal('post')}
-              className="flex-1 rounded-xl bg-gradient-to-r from-rose-500 to-orange-500 px-4 py-3 text-xs font-bold text-white hover:brightness-110"
+              className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-gradient-to-r from-rose-500 to-orange-500 px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 sm:max-w-56"
             >
               Share a room
             </button>
@@ -341,7 +341,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         )}
       </div>
 
-      <div role="tablist" aria-label="Profile content" className="mb-5 flex justify-center border-b border-zinc-800/80">
+      <div role="tablist" aria-label="Profile content" className="mb-5 flex w-full justify-center border-b border-zinc-800/80">
         <button
           id="profile-posts-tab"
           type="button"
@@ -349,7 +349,7 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           aria-selected={activeContentTab === 'posts'}
           aria-controls="profile-posts-panel"
           onClick={() => setActiveContentTab('posts')}
-          className={`relative flex min-h-12 min-w-32 items-center justify-center gap-2 border-b-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition ${
+          className={`relative flex min-h-12 w-36 items-center justify-center gap-2 border-b-2 text-[10px] font-semibold uppercase tracking-[0.16em] transition sm:w-40 ${
             activeContentTab === 'posts'
               ? 'border-rose-400 text-zinc-100'
               : 'border-transparent text-zinc-500 hover:text-zinc-200'
