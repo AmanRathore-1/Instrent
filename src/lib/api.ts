@@ -543,7 +543,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   updateMyProfile: (
-    data: Omit<Partial<Pick<User, 'name' | 'username' | 'bio' | 'city' | 'locationArea' | 'occupation' | 'instituteOrCompany' | 'isOpenToRoommates'>>, 'occupation'> & {
+    data: Omit<Partial<Pick<User, 'name' | 'username' | 'bio' | 'city' | 'locationArea' | 'occupation' | 'instituteOrCompany' | 'isOpenToRoommates' | 'isPrivate'>>, 'occupation'> & {
       occupation?: User['occupation'] | null;
       avatarPublicId?: string;
     },
@@ -556,6 +556,8 @@ export const api = {
     fetchJson<{
       user: User;
       isFollowing: boolean;
+      requestStatus: string | null;
+      canViewContent: boolean;
       posts: Post[];
       reels: Reel[];
     }>(`/users/${username}`),
@@ -564,7 +566,7 @@ export const api = {
       `/users/${encodeURIComponent(username)}/${kind}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   setFollowing: (userId: string, isFollowing: boolean) =>
-    fetchJson<{ success: boolean; isFollowing: boolean; followersCount: number }>(`/users/${userId}/follow`, {
+    fetchJson<{ success: boolean; isFollowing: boolean; followersCount?: number; requestStatus?: string }>(`/users/${userId}/follow`, {
       method: isFollowing ? 'PUT' : 'DELETE',
     }),
   // Messages
