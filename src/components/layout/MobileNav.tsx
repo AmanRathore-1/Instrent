@@ -12,65 +12,51 @@ export const MobileNav: React.FC = () => {
     openUserProfile,
   } = useApp();
 
+  const itemClass = (isActive: boolean) =>
+    `flex h-12 min-w-0 flex-1 flex-col items-center justify-center rounded-xl px-0.5 transition-colors ${
+      isActive ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
+    }`;
+
+  const labelClass = 'mt-0.5 max-w-full truncate text-[9px] font-semibold min-[375px]:text-[10px]';
+
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] w-full items-start justify-around gap-0 border-t border-zinc-800 bg-zinc-950/95 px-0.5 pt-1.5 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
-      {/* Home */}
-      <button
-        onClick={() => setActiveView('home')}
-        className={`flex h-12 min-w-0 flex-1 flex-col items-center justify-center rounded-xl px-0.5 transition-colors ${
-          activeView === 'home' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
-        }`}
-      >
-        <Home className="w-5 h-5 stroke-[2.2]" />
-        <span className="mt-0.5 max-w-full truncate text-[9px] font-semibold min-[375px]:text-[10px]">Home</span>
+    <nav className="fixed inset-x-0 bottom-0 z-40 flex h-[calc(4rem+env(safe-area-inset-bottom))] w-full items-center justify-between gap-0 border-t border-zinc-800 bg-zinc-950/95 px-1 pt-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden">
+      <button onClick={() => setActiveView('home')} aria-label="Home" className={itemClass(activeView === 'home')}>
+        <Home className="h-5 w-5 shrink-0 stroke-[2.2]" />
+        <span className={labelClass}>Home</span>
       </button>
 
-      {/* Rooms */}
-      <button
-        onClick={() => setActiveView('rooms')}
-        className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${
-          activeView === 'rooms' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
-        }`}
-      >
-        <Building2 className="w-5 h-5 stroke-[2.2]" />
-        <span className="text-[10px] mt-0.5 font-semibold">Rooms</span>
+      <button onClick={() => setActiveView('rooms')} aria-label="Rooms" className={itemClass(activeView === 'rooms')}>
+        <Building2 className="h-5 w-5 shrink-0 stroke-[2.2]" />
+        <span className={labelClass}>Rooms</span>
       </button>
 
-      <button
-        onClick={() => setActiveView('reels')}
-        aria-label="Reels"
-        className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${
-          activeView === 'reels' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
-        }`}
-      >
-        <Film className="w-5 h-5 stroke-[2.2]" />
-        <span className="text-[10px] mt-0.5 font-semibold">Reels</span>
+      <button onClick={() => setActiveView('reels')} aria-label="Reels" className={itemClass(activeView === 'reels')}>
+        <Film className="h-5 w-5 shrink-0 stroke-[2.2]" />
+        <span className={labelClass}>Reels</span>
       </button>
 
-      {/* Post Room Button (Prominent Callout) */}
       <button
         onClick={() => openCreateModal('post')}
         title="Post a room"
-        className="flex h-12 w-12 shrink-0 flex-col items-center justify-center -mt-4 rounded-full bg-gradient-to-tr from-rose-500 via-pink-500 to-amber-400 text-white shadow-lg shadow-rose-500/30 active:scale-95 transition-transform"
+        aria-label="Post a room"
+        className="flex h-12 min-w-0 flex-1 items-center justify-center rounded-xl"
       >
-        <PlusCircle className="w-6 h-6 stroke-[2.5]" />
+        <span className="flex h-12 w-12 shrink-0 -translate-y-2 items-center justify-center rounded-full bg-gradient-to-tr from-rose-500 via-pink-500 to-amber-400 text-white shadow-lg shadow-rose-500/30 transition-transform active:scale-95">
+          <PlusCircle className="h-6 w-6 stroke-[2.5]" />
+        </span>
       </button>
 
-      {/* Messages */}
-      <button
-        onClick={() => setActiveView('messages')}
-        className={`relative flex h-12 min-w-0 flex-1 flex-col items-center justify-center rounded-xl px-0.5 transition-colors ${
-          activeView === 'messages' ? 'text-rose-500' : 'text-zinc-400 hover:text-zinc-200'
-        }`}
-      >
-        <MessageSquare className="w-5 h-5 stroke-[2.2]" />
-        {unreadMessagesCount > 0 && (
-          <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-zinc-950" />
-        )}
-        <span className="text-[10px] mt-0.5 font-semibold">Messages</span>
+      <button onClick={() => setActiveView('messages')} aria-label="Messages" className={itemClass(activeView === 'messages')}>
+        <span className="relative">
+          <MessageSquare className="h-5 w-5 shrink-0 stroke-[2.2]" />
+          {unreadMessagesCount > 0 && (
+            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-zinc-950" />
+          )}
+        </span>
+        <span className={labelClass}>Messages</span>
       </button>
 
-      {/* Saved / Profile */}
       <button
         onClick={() => {
           if (currentUser) {
@@ -79,22 +65,15 @@ export const MobileNav: React.FC = () => {
             setActiveView('saved');
           }
         }}
-        className={`flex flex-col items-center justify-center w-12 h-12 rounded-xl transition-colors ${
-          activeView === 'user-profile' || activeView === 'saved'
-            ? 'text-rose-500'
-            : 'text-zinc-400 hover:text-zinc-200'
-        }`}
+        aria-label="Profile"
+        className={itemClass(activeView === 'user-profile' || activeView === 'saved')}
       >
         {currentUser?.avatar ? (
-          <img
-            src={currentUser.avatar}
-            alt="Profile"
-            className="w-5 h-5 rounded-full object-cover border border-zinc-700"
-          />
+          <img src={currentUser.avatar} alt="Profile" className="h-5 w-5 shrink-0 rounded-full border border-zinc-700 object-cover" />
         ) : (
-          <User className="w-5 h-5 stroke-[2.2]" />
+          <User className="h-5 w-5 shrink-0 stroke-[2.2]" />
         )}
-        <span className="text-[10px] mt-0.5 font-semibold">Profile</span>
+        <span className={labelClass}>Profile</span>
       </button>
     </nav>
   );
