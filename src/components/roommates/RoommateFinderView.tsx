@@ -35,8 +35,8 @@ const UserCard: React.FC<{
       </div>
       <div className="mt-4 flex gap-2">
         <button type="button" onClick={onProfile} className="flex-1 rounded-lg bg-zinc-800 px-2 py-2 text-xs font-semibold text-white hover:bg-zinc-700">View Profile</button>
-        <button type="button" onClick={onMessage} className="rounded-lg border border-zinc-700 px-2.5 text-zinc-300 hover:border-rose-400 hover:text-white" aria-label={`Message ${user.name}`}><MessageCircle className="h-4 w-4" /></button>
-        <button type="button" onClick={onFollow} disabled={busy} className="rounded-lg border border-zinc-700 px-2.5 text-zinc-300 hover:border-rose-400 hover:text-white disabled:opacity-50" aria-label={user.isFollowing ? `Unfollow ${user.name}` : `Follow ${user.name}`}><UserPlus className="h-4 w-4" /></button>
+        {(!user.isPrivate || user.isFollowing) && <button type="button" onClick={onMessage} className="rounded-lg border border-zinc-700 px-2.5 text-zinc-300 hover:border-rose-400 hover:text-white" aria-label={`Message ${user.name}`}><MessageCircle className="h-4 w-4" /></button>}
+        <button type="button" onClick={onFollow} disabled={busy} className="rounded-lg border border-zinc-700 px-2.5 text-zinc-300 hover:border-rose-400 hover:text-white disabled:opacity-50" aria-label={user.isFollowing ? `Unfollow ${user.name}` : user.requestStatus === 'PENDING' ? `Follow request sent to ${user.name}` : `Follow ${user.name}`}><UserPlus className="h-4 w-4" /></button>
       </div>
     </article>
   );
@@ -98,7 +98,7 @@ export const RoommateFinderView: React.FC = () => {
     setBusy(user.id);
     try {
       const result = await api.setFollowing(user.id, !user.isFollowing);
-      setUsers((items) => items.map((item) => item.id === user.id ? { ...item, isFollowing: result.isFollowing } : item));
+      setUsers((items) => items.map((item) => item.id === user.id ? { ...item, isFollowing: result.isFollowing, requestStatus: result.requestStatus ?? null } : item));
     } catch (cause) { showToast(cause instanceof Error ? cause.message : 'Could not update follow status.', 'error'); }
     finally { setBusy(null); }
   };
