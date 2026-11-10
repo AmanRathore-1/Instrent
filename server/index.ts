@@ -2434,6 +2434,10 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
         skipDuplicates: true,
       });
       if (request.count > 0) {
+        const pending = await prisma.followRequest.findUniqueOrThrow({
+          where: { followerId_followedId: { followerId: user.id, followedId: targetId } },
+          select: { id: true },
+        });
         await prisma.notification.create({
           data: {
             userId: targetId,
@@ -2441,7 +2445,7 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
             title: 'Follow request',
             message: `${user.name} requested to follow you.`,
             metadata: { username: user.username, followerId: user.id },
-            dedupeKey: `follow-request:${user.id}:${targetId}`,
+            dedupeKey: `follow-request:${pending.id}`,
           },
         });
         io.to(`user:${targetId}`).emit('notification:new');
