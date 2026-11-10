@@ -1015,7 +1015,7 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
     const visibleAuthorIds = visibleAuthors.map((item) => item.id);
     const posts = await prisma.post.findMany({
       where: {
-        authorId: userId ? (visibleAuthorIds.includes(userId) ? userId : '__private_profile__') : { in: visibleAuthorIds },
+        authorId: { in: userId ? (visibleAuthorIds.includes(userId) ? [userId] : []) : visibleAuthorIds },
         ...(category === 'rooms' || category === 'recent' ? { rent: { not: null } } : {}),
         ...(category === 'recent' ? { createdAt: { gte: recentSince, lte: now } } : {}),
         ...(category === 'rooms' && cursor?.roomFeedRank !== undefined ? {
@@ -2315,6 +2315,13 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
       }
       update.isOpenToRoommates = body.isOpenToRoommates;
     }
+    if (body.isPrivate !== undefined) {
+      if (typeof body.isPrivate !== 'boolean') {
+        res.status(400).json({ error: 'Account privacy must be true or false.' });
+        return;
+      }
+      update.isPrivate = body.isPrivate;
+    }
     const updatedUser = avatarAsset
       ? await prisma.$transaction(async (transaction) => {
           const attached = await transaction.mediaUpload.updateMany({
@@ -2347,22 +2354,49 @@ app.patch('/api/users/me', requireUser, async (req, res, next) => {
 app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
   try {
     const user = await findSignedInUser(req, res);
-    if (!user) {
-      res.status(404).json({ error: 'Profile not found.' });
-      return;
-    }
     const targetId = routeParam(req.params.targetId);
-    if (!targetId) {
-      res.status(400).json({ error: 'Invalid user id.' });
+    if (!user || !targetId) {
+      res.status(user ? 400 : 404).json({ error: user ? 'Invalid user id.' : 'Profile not found.' });
       return;
     }
     if (targetId === user.id) {
       res.status(400).json({ error: 'You cannot follow your own profile.' });
       return;
     }
-    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+    const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true, isPrivate: true } });
     if (!target) {
       res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+    const existingFollow = await prisma.follow.findUnique({
+      where: { followerId_followedId: { followerId: user.id, followedId: targetId } },
+      select: { id: true },
+    });
+    if (existingFollow) {
+      const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
+      res.json({ success: true, isFollowing: true, isRequested: false, followersCount });
+      return;
+    }
+    if (target.isPrivate) {
+      const request = await prisma.followRequest.createMany({
+        data: [{ followerId: user.id, followedId: targetId }],
+        skipDuplicates: true,
+      });
+      if (request.count > 0) {
+        await prisma.notification.create({
+          data: {
+            userId: targetId,
+            type: 'FOLLOW_REQUEST',
+            title: 'Follow request',
+            message: `${user.name} requested to follow you.`,
+            metadata: { username: user.username, followerId: user.id },
+            dedupeKey: `follow-request:${user.id}:${targetId}`,
+          },
+        });
+        io.to(`user:${targetId}`).emit('notification:new');
+      }
+      const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
+      res.json({ success: true, isFollowing: false, isRequested: true, followersCount });
       return;
     }
     const created = await prisma.follow.createMany({
@@ -2388,10 +2422,81 @@ app.put('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
     }
     const followersCount = await prisma.follow.count({ where: { followedId: targetId } });
     io.to(`user:${targetId}`).emit('profile:followers-changed', { followersCount });
-    res.json({ success: true, isFollowing: true, followersCount });
+    res.json({ success: true, isFollowing: true, isRequested: false, followersCount });
   } catch (error) {
     next(error);
   }
+});
+
+app.delete('/api/users/:targetId/follow-request', requireUser, async (req, res, next) => {
+  try {
+    const user = await findSignedInUser(req, res);
+    const targetId = routeParam(req.params.targetId);
+    if (!user || !targetId) {
+      res.status(user ? 400 : 404).json({ error: user ? 'Invalid user id.' : 'Profile not found.' });
+      return;
+    }
+    const result = await prisma.followRequest.deleteMany({ where: { followerId: user.id, followedId: targetId } });
+    res.json({ success: true, cancelled: result.count > 0 });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/follow-requests/incoming', requireUser, async (req, res, next) => {
+  try {
+    const user = await findSignedInUser(req, res);
+    if (!user) { res.status(404).json({ error: 'Profile not found.' }); return; }
+    const requests = await prisma.followRequest.findMany({
+      where: { followedId: user.id },
+      include: { follower: { select: { id: true, username: true, name: true, avatar: true, bio: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    res.json({ requests: requests.map((item) => ({ id: item.id, createdAt: item.createdAt.toISOString(), user: item.follower })) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/follow-requests/:requestId/:action', requireUser, async (req, res, next) => {
+  try {
+    const user = await findSignedInUser(req, res);
+    const requestId = routeParam(req.params.requestId);
+    const action = routeParam(req.params.action);
+    if (!user || !requestId || (action !== 'accept' && action !== 'reject')) {
+      res.status(user ? 400 : 404).json({ error: 'Invalid follow request action.' });
+      return;
+    }
+    const request = await prisma.followRequest.findFirst({
+      where: { id: requestId, followedId: user.id },
+      include: { follower: { select: { id: true, username: true, name: true } } },
+    });
+    if (!request) { res.status(404).json({ error: 'Follow request not found.' }); return; }
+    if (action === 'reject') {
+      await prisma.followRequest.deleteMany({ where: { id: requestId, followedId: user.id } });
+      res.json({ success: true, accepted: false });
+      return;
+    }
+    await prisma.$transaction(async (transaction) => {
+      const removed = await transaction.followRequest.deleteMany({ where: { id: requestId, followedId: user.id } });
+      if (removed.count !== 1) throw new Error('This follow request has already been handled.');
+      await transaction.follow.createMany({
+        data: [{ followerId: request.followerId, followedId: user.id }],
+        skipDuplicates: true,
+      });
+      await transaction.notification.create({
+        data: {
+          userId: request.followerId,
+          type: 'FOLLOW_REQUEST_ACCEPTED',
+          title: 'Follow request accepted',
+          message: `${user.name} accepted your follow request.`,
+          metadata: { username: user.username },
+          dedupeKey: `follow-accepted:${request.id}`,
+        },
+      });
+    });
+    io.to(`user:${request.followerId}`).emit('notification:new');
+    const followersCount = await prisma.follow.count({ where: { followedId: user.id } });
+    io.to(`user:${user.id}`).emit('profile:followers-changed', { followersCount });
+    res.json({ success: true, accepted: true, followersCount });
+  } catch (error) { next(error); }
 });
 
 app.delete('/api/users/:targetId/follow', requireUser, async (req, res, next) => {
