@@ -266,7 +266,7 @@ app.get('/api/users/discover', requireUser, async (req, res, next) => {
       },
       select: {
         id: true, username: true, name: true, avatar: true, bio: true, city: true,
-        locationArea: true, occupation: true, instituteOrCompany: true,
+        locationArea: true, occupation: true, instituteOrCompany: true, isPrivate: true,
         lastSeenAt: true, roommateProfile: { select: { budgetMin: true, budgetMax: true, moveInAt: true, preferences: true } },
         followers: { where: { followerId: viewer.id }, select: { id: true } },
       },
