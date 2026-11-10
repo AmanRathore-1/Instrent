@@ -1,5 +1,5 @@
 import React from 'react';
-import { Film, Home, PlusCircle, MessageSquare, User, Building2 } from 'lucide-react';
+import { Film, Home, PlusCircle, MessageSquare, User } from 'lucide-react';
 import { useApp } from '../../context/AppContext.tsx';
 
 export const MobileNav: React.FC = () => {
@@ -24,11 +24,6 @@ export const MobileNav: React.FC = () => {
       <button onClick={() => setActiveView('home')} aria-label="Home" className={itemClass(activeView === 'home')}>
         <Home className="h-5 w-5 shrink-0 stroke-[2.2]" />
         <span className={labelClass}>Home</span>
-      </button>
-
-      <button onClick={() => setActiveView('rooms')} aria-label="Rooms" className={itemClass(activeView === 'rooms')}>
-        <Building2 className="h-5 w-5 shrink-0 stroke-[2.2]" />
-        <span className={labelClass}>Rooms</span>
       </button>
 
       <button onClick={() => setActiveView('reels')} aria-label="Reels" className={itemClass(activeView === 'reels')}>
