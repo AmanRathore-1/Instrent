@@ -21,3 +21,12 @@ The application no longer reads or writes legacy tables in the `public` schema. 
 - Room filtering and unread-message indexes are added.
 - The migration creates `VisitRequest` with a timestamp-valued `scheduledAt`, status enum, foreign keys, and lookup indexes.
 - Trigram indexes are created for room title, description, city, and area when `pg_trgm` is available. The migration installs the extension only when PostgreSQL reports it as available; if it is unavailable, PostgreSQL emits a notice and these optional search indexes are skipped.
+
+
+## Account privacy and follow requests (20261110140000)
+
+- Adds `User.isPrivate BOOLEAN NOT NULL DEFAULT false`; existing accounts and newly created accounts remain public unless the owner opts in to private mode.
+- Adds a separate `FollowRequest` table because the existing `Follow` model represents approved relationships only. Existing `Follow` rows are not rewritten or deleted. The unique requester/target key prevents duplicate pending requests.
+- Extends the existing `Notification.type` CHECK constraint for `FOLLOW_REQUEST` and `FOLLOW_REQUEST_ACCEPTED`. The migration aborts if it encounters notification values outside the known set.
+- This migration is additive and is not applied automatically by this feature branch. Review and back up the production database before running `npm run db:migrate:deploy`.
+- **Media delivery release gate:** existing post/reel assets are stored as standard Cloudinary delivery URLs. API authorization prevents unauthorised API reads, but it cannot revoke a previously shared Cloudinary URL. Before enabling private accounts in production, migrate protected assets to authenticated/private Cloudinary delivery (or an equivalent access-controlled media proxy) and return short-lived authorised media URLs only to approved viewers. Do not treat API-only protection as complete media privacy.
