@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Camera, LogOut, UserRound } from 'lucide-react';
+import { Camera, Globe, Lock, LogOut, UserRound } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
 
@@ -7,6 +7,28 @@ export const SettingsView: React.FC = () => {
   const { currentUser, openUserProfile, signOut, refreshUserData, showToast } = useApp();
   const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isSavingPrivacy, setIsSavingPrivacy] = useState(false);
+
+  const changePrivacy = async (isPrivate: boolean) => {
+    if (!currentUser || currentUser.isPrivate === isPrivate || isSavingPrivacy) return;
+    const nextLabel = isPrivate ? 'Private' : 'Public';
+    const confirmed = window.confirm(
+      isPrivate
+        ? 'Switch to a private account? Existing followers will keep access, while new followers will need your approval.'
+        : 'Switch to a public account? Anyone will be able to view your posts and reels.'
+    );
+    if (!confirmed) return;
+    setIsSavingPrivacy(true);
+    try {
+      await api.updateMyProfile({ isPrivate });
+      await refreshUserData();
+      showToast(`Your account is now ${nextLabel.toLowerCase()}.`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not update account privacy.', 'error');
+    } finally {
+      setIsSavingPrivacy(false);
+    }
+  };
 
   const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -67,8 +89,45 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
+      {currentUser && (
+        <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
+          <div className="flex items-start gap-3">
+            <div className="rounded-xl bg-rose-500/10 p-2 text-rose-300"><Lock className="h-5 w-5" /></div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-bold text-white">Privacy</h2>
+              <p className="mt-1 text-xs leading-relaxed text-zinc-400">Choose who can see your posts and reels. Your existing approved followers are retained when you switch to private.</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={isSavingPrivacy}
+              onClick={() => void changePrivacy(false)}
+              aria-pressed={!currentUser.isPrivate}
+              className={`flex items-center gap-3 rounded-xl border p-4 text-left transition ${!currentUser.isPrivate ? 'border-rose-400/60 bg-rose-500/10' : 'border-zinc-700 bg-zinc-950 hover:border-zinc-500'} disabled:opacity-50`}
+            >
+              <Globe className="h-5 w-5 text-emerald-300" />
+              <span className="min-w-0 flex-1"><span className="block text-xs font-bold text-white">Public account</span><span className="mt-1 block text-[11px] text-zinc-400">Anyone can view your posts and reels.</span></span>
+              {!currentUser.isPrivate && <span className="text-[10px] font-bold text-emerald-300">Current</span>}
+            </button>
+            <button
+              type="button"
+              disabled={isSavingPrivacy}
+              onClick={() => void changePrivacy(true)}
+              aria-pressed={currentUser.isPrivate}
+              className={`flex items-center gap-3 rounded-xl border p-4 text-left transition ${currentUser.isPrivate ? 'border-rose-400/60 bg-rose-500/10' : 'border-zinc-700 bg-zinc-950 hover:border-zinc-500'} disabled:opacity-50`}
+            >
+              <Lock className="h-5 w-5 text-amber-300" />
+              <span className="min-w-0 flex-1"><span className="block text-xs font-bold text-white">Private account</span><span className="mt-1 block text-[11px] text-zinc-400">Only approved followers can view your posts and reels.</span></span>
+              {currentUser.isPrivate && <span className="text-[10px] font-bold text-emerald-300">Current</span>}
+            </button>
+          </div>
+          {isSavingPrivacy && <p className="mt-3 text-xs text-zinc-400">Updating privacy settings...</p>}
+        </div>
+      )}
+
       <button
-        onClick={() => void signOut()}
+        onClick={() => void signOut()
         className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-800 px-4 py-3 text-xs font-semibold text-zinc-300 hover:bg-zinc-900 hover:text-white"
       >
         <LogOut className="h-4 w-4" />
