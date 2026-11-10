@@ -1313,6 +1313,10 @@ app.put('/api/reels/:reelId/like', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'Reel not found.' });
       return;
     }
+    if (!(await canViewAccountContent(user.id, reel.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
+      return;
+    }
     const created = await persistThenPublish(
       () => prisma.$transaction(async (transaction) => {
         const result = await transaction.like.createMany({
@@ -1364,6 +1368,10 @@ app.delete('/api/reels/:reelId/like', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'Reel not found.' });
       return;
     }
+    if (!(await canViewAccountContent(user.id, reel.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
+      return;
+    }
     await persistThenPublish(
       () => prisma.like.deleteMany({ where: { userId: user.id, reelId } }),
       (result) => {
@@ -1382,6 +1390,13 @@ app.get('/api/reels/:reelId/comments', requireUser, async (req, res, next) => {
     const reelId = routeParam(req.params.reelId);
     if (!reelId) {
       res.status(400).json({ error: 'Invalid reel id.' });
+      return;
+    }
+    const viewer = await findSignedInUser(req, res);
+    const reel = await prisma.reel.findUnique({ where: { id: reelId }, select: { authorId: true } });
+    if (!viewer || !reel) { res.status(404).json({ error: 'Reel not found.' }); return; }
+    if (!(await canViewAccountContent(viewer.id, reel.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
       return;
     }
     const cursor = decodeCursor(req.query.cursor);
@@ -1437,6 +1452,10 @@ app.post('/api/reels/:reelId/comments', requireUser, async (req, res, next) => {
     const reel = await prisma.reel.findUnique({ where: { id: reelId }, select: { authorId: true } });
     if (!reel) {
       res.status(404).json({ error: 'Reel not found.' });
+      return;
+    }
+    if (!(await canViewAccountContent(user.id, reel.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
       return;
     }
     const comment = await persistThenPublish(
@@ -1829,6 +1848,10 @@ app.patch('/api/posts/:postId', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'Post not found.' });
       return;
     }
+    if (!(await canViewAccountContent(user.id, post.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
+      return;
+    }
     if (post.authorId !== user.id) {
       res.status(403).json({ error: 'You can only edit your own posts.' });
       return;
@@ -1904,6 +1927,10 @@ app.put('/api/posts/:postId/like', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'Post not found.' });
       return;
     }
+    if (!(await canViewAccountContent(user.id, post.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
+      return;
+    }
     await prisma.$transaction(async (transaction) => {
       const result = await transaction.like.createMany({
         data: [{ userId: user.id, postId, reelId: null }],
@@ -1947,6 +1974,10 @@ app.delete('/api/posts/:postId/like', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'Post not found.' });
       return;
     }
+    if (!(await canViewAccountContent(user.id, post.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
+      return;
+    }
     await prisma.like.deleteMany({ where: { userId: user.id, postId } });
     const likesCount = await prisma.like.count({ where: { postId } });
     io.emit('post:changed', { postId, authorId: post.authorId });
@@ -1967,6 +1998,10 @@ app.put('/api/posts/:postId/save', requireUser, async (req, res, next) => {
     const post = await prisma.post.findUnique({ where: { id: postId }, select: { authorId: true } });
     if (!post) {
       res.status(404).json({ error: 'Post not found.' });
+      return;
+    }
+    if (!(await canViewAccountContent(user.id, post.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
       return;
     }
     await prisma.savedRoom.createMany({
@@ -1994,6 +2029,10 @@ app.delete('/api/posts/:postId/save', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'Post not found.' });
       return;
     }
+    if (!(await canViewAccountContent(user.id, post.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
+      return;
+    }
     await prisma.savedRoom.deleteMany({ where: { userId: user.id, postId } });
     const savesCount = await prisma.savedRoom.count({ where: { postId } });
     io.emit('post:changed', { postId, authorId: post.authorId });
@@ -2008,6 +2047,13 @@ app.get('/api/posts/:postId/comments', requireUser, async (req, res, next) => {
     const postId = routeParam(req.params.postId);
     if (!postId) {
       res.status(400).json({ error: 'Invalid post id.' });
+      return;
+    }
+    const viewer = await findSignedInUser(req, res);
+    const post = await prisma.post.findUnique({ where: { id: postId }, select: { authorId: true } });
+    if (!viewer || !post) { res.status(404).json({ error: 'Post not found.' }); return; }
+    if (!(await canViewAccountContent(viewer.id, post.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
       return;
     }
     const cursor = decodeCursor(req.query.cursor);
@@ -2065,6 +2111,10 @@ app.post('/api/posts/:postId/comments', requireUser, async (req, res, next) => {
     const post = await prisma.post.findUnique({ where: { id: postId }, select: { authorId: true } });
     if (!post) {
       res.status(404).json({ error: 'Post not found.' });
+      return;
+    }
+    if (!(await canViewAccountContent(user.id, post.authorId))) {
+      res.status(403).json({ error: 'Follow this private account to access its content.', code: 'PRIVATE_ACCOUNT' });
       return;
     }
     const comment = await prisma.$transaction(async (transaction) => {
