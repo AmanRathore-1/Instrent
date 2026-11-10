@@ -145,7 +145,7 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
-      {currentUser?.isPrivate && (
+      {(currentUser?.isPrivate || followRequests.length > 0) && (
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
           <div className="flex items-center justify-between gap-3">
             <div><h2 className="text-sm font-bold text-white">Follow requests</h2><p className="mt-1 text-xs text-zinc-400">Approve people who want to follow your private account.</p></div>
