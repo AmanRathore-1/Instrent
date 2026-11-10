@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
+import { Lock,
   Briefcase,
   GraduationCap,
   Grid3X3,
@@ -40,6 +40,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   const [reels, setReels] = useState<Reel[]>([]);
   const [activeContentTab, setActiveContentTab] = useState<'posts' | 'reels'>('posts');
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isRequested, setIsRequested] = useState(false);
+  const [canViewContent, setCanViewContent] = useState(true);
+  const [followBusy, setFollowBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const loadingVisible = useDelayedFlag(loading);
   const [loadError, setLoadError] = useState('');
@@ -84,6 +87,8 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
       setPosts(data.posts || []);
       setReels(data.reels || []);
       setIsFollowing(data.isFollowing);
+      setIsRequested(data.hasPendingFollowRequest);
+      setCanViewContent(data.canViewContent);
     } catch (cause) {
       console.error('Failed to load profile:', cause);
       setLoadError(cause instanceof Error ? cause.message : 'Could not load this profile.');
@@ -143,16 +148,31 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
   }, [posts, viewParams.postId]);
 
   const toggleFollow = async () => {
-    if (!user || isOwnProfile) return;
+    if (!user || isOwnProfile || followBusy) return;
+    setFollowBusy(true);
     try {
-      const result = await api.setFollowing(user.id, !isFollowing);
-      setIsFollowing(result.isFollowing);
-      setUser((previous) => previous
-        ? { ...previous, followersCount: result.followersCount }
-        : previous);
-      showToast(result.isFollowing ? `Following ${user.name}` : `Unfollowed ${user.name}`, 'info');
+      if (isRequested) {
+        await api.cancelFollowRequest(user.id);
+        setIsRequested(false);
+        showToast('Follow request cancelled.', 'info');
+      } else if (isFollowing) {
+        const result = await api.setFollowing(user.id, false);
+        setIsFollowing(false);
+        setCanViewContent(false);
+        setUser((previous) => previous ? { ...previous, followersCount: result.followersCount } : previous);
+        showToast('Unfollowed ' + user.name, 'info');
+      } else {
+        const result = await api.setFollowing(user.id, true);
+        setIsFollowing(result.isFollowing);
+        setIsRequested(Boolean(result.isRequested));
+        setCanViewContent(result.isFollowing || !user.isPrivate);
+        setUser((previous) => previous ? { ...previous, followersCount: result.followersCount } : previous);
+        showToast(result.isRequested ? 'Follow request sent.' : 'Following ' + user.name, 'success');
+      }
     } catch (cause) {
       showToast(cause instanceof Error ? cause.message : 'Could not update follow status.', 'error');
+    } finally {
+      setFollowBusy(false);
     }
   };
 
@@ -319,13 +339,14 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           <>
             <button
               onClick={() => void toggleFollow()}
+              disabled={followBusy}
               className={`flex-1 rounded-lg px-4 py-2.5 text-xs font-semibold transition ${
-                isFollowing ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-sky-600 text-white hover:bg-sky-500'
+                isFollowing || isRequested ? 'bg-zinc-800 text-white hover:bg-zinc-700' : 'bg-sky-600 text-white hover:bg-sky-500'
               }`}
             >
               <span className="inline-flex items-center gap-1.5">
                 {isFollowing ? <UserCheck className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
-                {isFollowing ? 'Following' : 'Follow'}
+                {isFollowing ? 'Following' : isRequested ? 'Requested · Cancel' : 'Follow'}
               </span>
             </button>
             <button
@@ -341,6 +362,15 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
         )}
       </div>
 
+      {!canViewContent ? (
+        <section className="mx-auto mt-8 flex max-w-xl flex-col items-center rounded-3xl border border-zinc-800 bg-zinc-900/60 px-6 py-12 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full border border-zinc-700 bg-zinc-950"><Lock className="h-7 w-7 text-zinc-300" /></div>
+          <h2 className="mt-5 text-lg font-bold text-white">This account is private</h2>
+          <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-400">Follow this account to see their photos and videos.</p>
+          {!isOwnProfile && <button type="button" disabled={followBusy} onClick={() => void toggleFollow()} className="mt-5 rounded-xl bg-sky-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-50">{isRequested ? 'Requested · Cancel' : 'Follow'}</button>}
+        </section>
+      ) : (
+      <>
       <div role="tablist" aria-label="Profile content" className="mb-5 flex w-full justify-center border-b border-zinc-800/80">
         <button
           id="profile-posts-tab"
@@ -458,6 +488,9 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
             </div>
           )}
         </section>
+      )}
+
+      </>
       )}
 
       {connectionKind && (
