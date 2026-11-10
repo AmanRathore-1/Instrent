@@ -540,7 +540,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
   updateMyProfile: (
-    data: Omit<Partial<Pick<User, 'name' | 'username' | 'bio' | 'city' | 'locationArea' | 'occupation' | 'instituteOrCompany' | 'isOpenToRoommates'>>, 'occupation'> & {
+    data: Omit<Partial<Pick<User, 'name' | 'username' | 'bio' | 'city' | 'locationArea' | 'occupation' | 'instituteOrCompany' | 'isOpenToRoommates' | 'isPrivate'>>, 'occupation'> & {
       occupation?: User['occupation'] | null;
       avatarPublicId?: string;
     },
