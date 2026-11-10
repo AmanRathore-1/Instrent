@@ -84,6 +84,15 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
     const metadata = notification.metadata ?? {};
     void markRead(notification.id);
     closeNotifications();
+    if (notification.type === 'FOLLOW_REQUEST') {
+      setActiveView('settings');
+      return;
+    }
+    if (notification.type === 'FOLLOW_REQUEST_ACCEPTED' && typeof metadata.username === 'string') {
+      setViewParams({ username: metadata.username, refreshKey: Date.now() });
+      setActiveView('user-profile');
+      return;
+    }
     if (notification.type === 'NEW_MESSAGE' && typeof metadata.conversationId === 'string') {
       setViewParams({ conversationId: metadata.conversationId });
       setActiveView('messages');
