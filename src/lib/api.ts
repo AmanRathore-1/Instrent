@@ -553,6 +553,8 @@ export const api = {
     fetchJson<{
       user: User;
       isFollowing: boolean;
+      hasPendingFollowRequest: boolean;
+      canViewContent: boolean;
       posts: Post[];
       reels: Reel[];
     }>(`/users/${username}`),
@@ -561,9 +563,15 @@ export const api = {
       `/users/${encodeURIComponent(username)}/${kind}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
     ),
   setFollowing: (userId: string, isFollowing: boolean) =>
-    fetchJson<{ success: boolean; isFollowing: boolean; followersCount: number }>(`/users/${userId}/follow`, {
+    fetchJson<{ success: boolean; isFollowing: boolean; isRequested?: boolean; followersCount: number }>(`/users/${userId}/follow`, {
       method: isFollowing ? 'PUT' : 'DELETE',
     }),
+  cancelFollowRequest: (userId: string) =>
+    fetchJson<{ success: boolean; cancelled: boolean }>(`/users/${userId}/follow-request`, { method: 'DELETE' }),
+  getIncomingFollowRequests: () =>
+    fetchJson<{ requests: Array<{ id: string; createdAt: string; user: Pick<User, 'id' | 'username' | 'name' | 'avatar' | 'bio'> }> }>('/follow-requests/incoming'),
+  respondToFollowRequest: (requestId: string, action: 'accept' | 'reject') =>
+    fetchJson<{ success: boolean; accepted: boolean }>(`/follow-requests/${requestId}/${action}`, { method: 'POST' }),
   // Messages
   getUnreadMessageCount: () =>
     fetchJson<{ unreadCount: number }>('/messages/unread-count'),
