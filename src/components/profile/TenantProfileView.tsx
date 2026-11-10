@@ -367,7 +367,6 @@ export const TenantProfileView: React.FC<TenantProfileProps> = ({ username, refr
           <div className="flex h-16 w-16 items-center justify-center rounded-full border border-zinc-700 bg-zinc-950"><Lock className="h-7 w-7 text-zinc-300" /></div>
           <h2 className="mt-5 text-lg font-bold text-white">This account is private</h2>
           <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-400">Follow this account to see their photos and videos.</p>
-          {!isOwnProfile && <button type="button" disabled={followBusy} onClick={() => void toggleFollow()} className="mt-5 rounded-xl bg-sky-600 px-6 py-2.5 text-sm font-bold text-white hover:bg-sky-500 disabled:opacity-50">{isRequested ? 'Requested · Cancel' : 'Follow'}</button>}
         </section>
       ) : (
       <>
