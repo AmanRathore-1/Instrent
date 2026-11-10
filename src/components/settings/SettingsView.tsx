@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Camera, Globe, Lock, LogOut, UserRound } from 'lucide-react';
 import { api } from '../../lib/api.ts';
 import { useApp } from '../../context/AppContext.tsx';
@@ -8,6 +8,25 @@ export const SettingsView: React.FC = () => {
   const [avatarUploadProgress, setAvatarUploadProgress] = useState(0);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isSavingPrivacy, setIsSavingPrivacy] = useState(false);
+  const [followRequests, setFollowRequests] = useState<Array<{ id: string; createdAt: string; user: { id: string; username: string; name: string; avatar: string; bio?: string } }>>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
+
+  const loadFollowRequests = async () => {
+    setRequestsLoading(true);
+    try {
+      const result = await api.getIncomingFollowRequests();
+      setFollowRequests(result.requests);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Could not load follow requests.', 'error');
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadFollowRequests();
+  }, []);
 
   const changePrivacy = async (isPrivate: boolean) => {
     if (!currentUser || currentUser.isPrivate === isPrivate || isSavingPrivacy) return;
@@ -123,6 +142,39 @@ export const SettingsView: React.FC = () => {
             </button>
           </div>
           {isSavingPrivacy && <p className="mt-3 text-xs text-zinc-400">Updating privacy settings...</p>}
+        </div>
+      )}
+
+      {currentUser?.isPrivate && (
+        <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/70 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div><h2 className="text-sm font-bold text-white">Follow requests</h2><p className="mt-1 text-xs text-zinc-400">Approve people who want to follow your private account.</p></div>
+            <span className="rounded-full bg-rose-500/10 px-2.5 py-1 text-xs font-bold text-rose-300">{followRequests.length}</span>
+          </div>
+          {requestsLoading ? <p className="py-6 text-center text-xs text-zinc-400">Loading requests...</p> : followRequests.length === 0 ? (
+            <p className="py-6 text-center text-xs text-zinc-500">You have no pending follow requests.</p>
+          ) : (
+            <div className="mt-4 divide-y divide-zinc-800">
+              {followRequests.map((request) => (
+                <div key={request.id} className="flex items-center gap-3 py-3">
+                  {request.user.avatar ? <img src={request.user.avatar} alt="" className="h-10 w-10 rounded-full object-cover" /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 text-sm font-bold text-white">{request.user.name.slice(0,1)}</span>}
+                  <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-white">{request.user.name}</p><p className="truncate text-[11px] text-zinc-500">@{request.user.username}</p></div>
+                  <button type="button" disabled={requestBusyId === request.id} onClick={async () => {
+                    setRequestBusyId(request.id);
+                    try { await api.respondToFollowRequest(request.id, 'reject'); setFollowRequests(items => items.filter(item => item.id !== request.id)); }
+                    catch (error) { showToast(error instanceof Error ? error.message : 'Could not reject request.', 'error'); }
+                    finally { setRequestBusyId(null); }
+                  }} className="rounded-lg border border-zinc-700 px-3 py-2 text-[10px] font-semibold text-zinc-300 disabled:opacity-50">Reject</button>
+                  <button type="button" disabled={requestBusyId === request.id} onClick={async () => {
+                    setRequestBusyId(request.id);
+                    try { await api.respondToFollowRequest(request.id, 'accept'); setFollowRequests(items => items.filter(item => item.id !== request.id)); showToast('Follow request accepted.', 'success'); }
+                    catch (error) { showToast(error instanceof Error ? error.message : 'Could not accept request.', 'error'); }
+                    finally { setRequestBusyId(null); }
+                  }} className="rounded-lg bg-sky-600 px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-50">Accept</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
