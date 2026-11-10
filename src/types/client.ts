@@ -14,6 +14,7 @@ export interface User {
   activeRole: UserRole;
   isVerified: boolean;
   isOpenToRoommates: boolean;
+  isPrivate: boolean;
   city: string;
   locationArea: string;
   occupation?: OccupationType;
@@ -133,7 +134,9 @@ export interface Notification {
     | 'COMMENT'
     | 'ROOM_INQUIRY'
     | 'LIKE'
-    | 'NEW_FOLLOWER';
+    | 'NEW_FOLLOWER'
+    | 'FOLLOW_REQUEST'
+    | 'FOLLOW_REQUEST_ACCEPTED';
   title: string;
   message: string;
   linkUrl?: string;
