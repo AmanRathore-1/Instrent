@@ -855,6 +855,7 @@ const serializeUser = async (user: DbUser, currentUserId?: string) => {
     activeRole,
     isVerified: user.isVerified,
     isOpenToRoommates: user.isOpenToRoommates,
+    isPrivate: user.isPrivate,
     city: user.city,
     locationArea: user.locationArea,
     occupation: user.occupation || undefined,
@@ -869,6 +870,18 @@ const findSignedInUser = async (req: Request, res: Response) => {
   const userId = res.locals.userId as string | undefined;
   if (!userId) return null;
   return prisma.user.findUnique({ where: { id: userId } });
+};
+
+const canViewAccountContent = async (viewerId: string, ownerId: string) => {
+  if (viewerId === ownerId) return true;
+  const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { isPrivate: true } });
+  if (!owner) return false;
+  if (!owner.isPrivate) return true;
+  const approved = await prisma.follow.findUnique({
+    where: { followerId_followedId: { followerId: viewerId, followedId: ownerId } },
+    select: { id: true },
+  });
+  return Boolean(approved);
 };
 
 const serializePost = async (post: {
@@ -992,9 +1005,17 @@ app.get('/api/posts', requireUser, async (req, res, next) => {
     const take = Number.isInteger(rawTake) ? Math.min(Math.max(rawTake, 1), 50) : 20;
     const now = new Date();
     const recentSince = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const followedAuthors = await prisma.follow.findMany({
+      where: { followerId: signedInUser.id }, select: { followedId: true },
+    });
+    const visibleAuthors = await prisma.user.findMany({
+      where: { OR: [{ isPrivate: false }, { id: signedInUser.id }, { id: { in: followedAuthors.map((item) => item.followedId) } }] },
+      select: { id: true },
+    });
+    const visibleAuthorIds = visibleAuthors.map((item) => item.id);
     const posts = await prisma.post.findMany({
       where: {
-        ...(userId ? { authorId: userId } : {}),
+        authorId: userId ? (visibleAuthorIds.includes(userId) ? userId : '__private_profile__') : { in: visibleAuthorIds },
         ...(category === 'rooms' || category === 'recent' ? { rent: { not: null } } : {}),
         ...(category === 'recent' ? { createdAt: { gte: recentSince, lte: now } } : {}),
         ...(category === 'rooms' && cursor?.roomFeedRank !== undefined ? {
@@ -1063,13 +1084,22 @@ app.get('/api/reels', requireUser, async (req, res, next) => {
     }
     const rawTake = Number(req.query.take);
     const take = Number.isInteger(rawTake) ? Math.min(Math.max(rawTake, 1), 30) : 10;
+    const followedAuthors = await prisma.follow.findMany({
+      where: { followerId: user.id }, select: { followedId: true },
+    });
+    const visibleAuthors = await prisma.user.findMany({
+      where: { OR: [{ isPrivate: false }, { id: user.id }, { id: { in: followedAuthors.map((item) => item.followedId) } }] },
+      select: { id: true },
+    });
     const reels = await prisma.reel.findMany({
-      where: cursor ? {
+      where: {
+        authorId: { in: visibleAuthors.map((item) => item.id) },
+        ...(cursor ? {
         OR: [
           { createdAt: { lt: cursor.createdAt } },
           { createdAt: cursor.createdAt, id: { lt: cursor.id } },
         ],
-      } : undefined,
+      } : {}),
       include: {
         author: true,
         _count: { select: { likes: true, comments: true } },
@@ -2093,7 +2123,18 @@ app.get('/api/users/:username', requireUser, async (req, res, next) => {
       res.status(404).json({ error: 'User not found.' });
       return;
     }
-    const [posts, reels, isFollowing] = await Promise.all([
+    const [isFollowing, pendingRequest] = await Promise.all([
+      prisma.follow.findUnique({
+        where: { followerId_followedId: { followerId: signedInUser.id, followedId: user.id } },
+        select: { id: true },
+      }),
+      prisma.followRequest.findUnique({
+        where: { followerId_followedId: { followerId: signedInUser.id, followedId: user.id } },
+        select: { id: true },
+      }),
+    ]);
+    const canViewContent = !user.isPrivate || Boolean(isFollowing) || signedInUser.id === user.id;
+    const [posts, reels] = canViewContent ? await Promise.all([
       prisma.post.findMany({
         where: { authorId: user.id },
         include: {
@@ -2116,13 +2157,12 @@ app.get('/api/users/:username', requireUser, async (req, res, next) => {
         orderBy: { createdAt: 'desc' },
         take: 100,
       }),
-      prisma.follow.findUnique({
-        where: { followerId_followedId: { followerId: signedInUser.id, followedId: user.id } },
-      }),
-    ]);
+    ]) : [[], []];
     res.json({
       user: await serializeUser(user, signedInUser.id),
       isFollowing: Boolean(isFollowing),
+      hasPendingFollowRequest: Boolean(pendingRequest),
+      canViewContent,
       posts: await Promise.all(posts.map(async (post) => ({
         ...await serializePost(post, signedInUser.id),
         isFollowingOwner: Boolean(isFollowing),
