@@ -1095,11 +1095,12 @@ app.get('/api/reels', requireUser, async (req, res, next) => {
       where: {
         authorId: { in: visibleAuthors.map((item) => item.id) },
         ...(cursor ? {
-        OR: [
-          { createdAt: { lt: cursor.createdAt } },
-          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
-        ],
-      } : {}),
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        } : {}),
+      },
       include: {
         author: true,
         _count: { select: { likes: true, comments: true } },
