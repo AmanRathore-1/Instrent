@@ -5,6 +5,7 @@ import {
   MessageSquare,
   Heart,
   UserPlus,
+  Lock,
 } from 'lucide-react';
 import { Notification } from '../../types/client.ts';
 import { api } from '../../lib/api.ts';
@@ -161,6 +162,8 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({ isOpen
                         <MessageSquare className="w-4 h-4 text-sky-400" />
                       ) : notif.type === 'NEW_FOLLOWER' ? (
                         <UserPlus className="w-4 h-4 text-violet-400" />
+                      ) : notif.type === 'FOLLOW_REQUEST' || notif.type === 'FOLLOW_REQUEST_ACCEPTED' ? (
+                        <Lock className="w-4 h-4 text-amber-300" />
                       ) : (
                         <Heart className="w-4 h-4 text-rose-500" />
                       )}
